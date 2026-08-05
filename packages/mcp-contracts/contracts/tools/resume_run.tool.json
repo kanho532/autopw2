@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopw.dev/contracts/2.1/tools/resume_run.tool.json",
+  "name": "resume_run",
+  "description": "Take over a stale/interrupted Run and continue outstanding execution instances. Idempotent by client_request_id; at-least-once semantics; non-resumable instances block resume.",
+  "input_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://autopw.dev/contracts/2.1/tools/resume_run.tool.json#/input",
+    "title": "resume_run input",
+    "description": "Resume request",
+    "type": "object",
+    "properties": {
+      "schema_version": {
+        "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/schemaVersion"
+      },
+      "client_request_id": {
+        "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/clientRequestId"
+      },
+      "workspace_id": {
+        "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/workspaceId"
+      },
+      "run_id": {
+        "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/runId"
+      }
+    },
+    "required": [
+      "schema_version",
+      "client_request_id",
+      "workspace_id",
+      "run_id"
+    ],
+    "additionalProperties": false
+  },
+  "result_union": [
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "accepted"
+        },
+        "schema_version": {
+          "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/schemaVersion"
+        },
+        "operation_id": {
+          "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/operationId"
+        },
+        "poll_after_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 600000
+        },
+        "run_id": {
+          "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/runId"
+        }
+      },
+      "required": [
+        "kind",
+        "schema_version",
+        "operation_id",
+        "poll_after_ms",
+        "run_id"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "$ref": "https://autopw.dev/schemas/2.1/mcp-error-envelope.schema.json"
+    }
+  ],
+  "creates_operation": true,
+  "requires_client_request_id": true,
+  "async_default": true,
+  "retryable": true,
+  "authorization_scope": [
+    "workspace"
+  ],
+  "returns_max_bytes": 524288,
+  "examples": {
+    "request": [
+      {
+        "schema_version": "2.1",
+        "client_request_id": "cr_res1",
+        "workspace_id": "ws_demo",
+        "run_id": "run_0123456789abcdefghij"
+      }
+    ],
+    "ok": [
+      {
+        "kind": "accepted",
+        "schema_version": "2.1",
+        "operation_id": "op_0123456789abcdefghij",
+        "run_id": "run_0123456789abcdefghij",
+        "poll_after_ms": 5000
+      }
+    ],
+    "error": [
+      {
+        "kind": "error",
+        "schema_version": "2.1",
+        "error": {
+          "code": "BLOCKED_RESUME",
+          "message": "non-resumable instance cannot be safely rerun"
+        },
+        "retryable": false
+      }
+    ]
+  }
+}

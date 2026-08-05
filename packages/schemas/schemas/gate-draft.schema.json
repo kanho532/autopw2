@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopw.dev/schemas/2.1/gate-draft.schema.json",
+  "title": "Write-once gate draft",
+  "type": "object",
+  "properties": {
+    "gate": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/enum/gate"
+    },
+    "audit_status": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/enum/auditStatus"
+    },
+    "p0_coverage_pct": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 100
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "required": [
+    "gate",
+    "audit_status"
+  ],
+  "additionalProperties": false
+}

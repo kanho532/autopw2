@@ -1,0 +1,16 @@
+{
+  "schema_version": "2.1",
+  "tools": [
+    "https://autopw.dev/contracts/2.1/tools/derive_coverage.tool.json",
+    "https://autopw.dev/contracts/2.1/tools/run_audit.tool.json",
+    "https://autopw.dev/contracts/2.1/tools/get_operation_status.tool.json",
+    "https://autopw.dev/contracts/2.1/tools/get_operation_result.tool.json",
+    "https://autopw.dev/contracts/2.1/tools/get_run_status.tool.json",
+    "https://autopw.dev/contracts/2.1/tools/get_run_result.tool.json",
+    "https://autopw.dev/contracts/2.1/tools/resume_run.tool.json",
+    "https://autopw.dev/contracts/2.1/tools/cancel_run.tool.json",
+    "https://autopw.dev/contracts/2.1/tools/cleanup_run.tool.json",
+    "https://autopw.dev/contracts/2.1/tools/explain_run.tool.json"
+  ],
+  "host_context": "https://autopw.dev/contracts/2.1/host-context.contract.json"
+}

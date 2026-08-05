@@ -1,0 +1,18 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/discovery.schema.json",
+  "positive": [
+    {
+      "schema_version": "2.1",
+      "observations": [],
+      "candidates": [],
+      "scenario_observations": [
+        {
+          "feature_id": "search",
+          "scenario": "normal",
+          "observed": true,
+          "blocker": false
+        }
+      ]
+    }
+  ]
+}

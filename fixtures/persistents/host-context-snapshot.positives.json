@@ -1,0 +1,12 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/host-context-snapshot.schema.json",
+  "positive": [
+    {
+      "workspace_id": "ws_demo",
+      "workspace_realpath": "D:/projects/demo",
+      "trust_mode": "trusted",
+      "caller": "codex",
+      "max_execution_instances_per_run": 100
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/mapping-audit.schema.json",
+  "positive": [
+    {
+      "planned_case_ids": [
+        "case_search_normal"
+      ],
+      "generated_case_ids": [
+        "case_search_normal"
+      ],
+      "match": "COMPLETE"
+    }
+  ]
+}

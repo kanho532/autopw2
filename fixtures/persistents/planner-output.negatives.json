@@ -1,0 +1,12 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/planner-output.schema.json",
+  "negative": [
+    {
+      "caseSelections": [
+        {
+          "caseId": "x"
+        }
+      ]
+    }
+  ]
+}

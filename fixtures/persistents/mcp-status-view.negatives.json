@@ -1,0 +1,14 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/mcp-status-view.schema.json",
+  "negative": [
+    {
+      "kind": "ok",
+      "schema_version": "2.1",
+      "run_id": "run_0123456789abcdefghij",
+      "phase": "NOT_A_PHASE",
+      "run_status": "ACTIVE",
+      "next_action": "x",
+      "poll_after_ms": 1
+    }
+  ]
+}

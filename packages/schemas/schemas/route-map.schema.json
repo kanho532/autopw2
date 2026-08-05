@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopw.dev/schemas/2.1/route-map.schema.json",
+  "title": "Route map",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/schemaVersion"
+    },
+    "ignore_globs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "description": "glob"
+      }
+    },
+    "mappings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "file_glob": {
+            "type": "string",
+            "description": "glob"
+          },
+          "routes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "route"
+            }
+          },
+          "features": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "feature id or wildcard"
+            }
+          },
+          "propagate": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "file_glob",
+          "routes",
+          "features",
+          "propagate"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "mappings"
+  ],
+  "additionalProperties": false
+}

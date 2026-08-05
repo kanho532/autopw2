@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopw.dev/schemas/2.1/mcp-error-envelope.schema.json",
+  "title": "MCP error envelope",
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "const": "error"
+    },
+    "schema_version": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/schemaVersion"
+    },
+    "error": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "description": "Stable machine-readable error code"
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "client_request_id": {
+          "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/clientRequestId"
+        },
+        "details": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "additionalProperties": false
+    },
+    "retryable": {
+      "type": "boolean"
+    },
+    "poll_after_ms": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "kind",
+    "schema_version",
+    "error"
+  ],
+  "additionalProperties": false
+}

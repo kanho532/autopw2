@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopw.dev/schemas/2.1/mcp-status-view.schema.json",
+  "title": "Read-only status query result",
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "const": "ok"
+    },
+    "schema_version": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/schemaVersion"
+    },
+    "run_id": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/runId"
+    },
+    "phase": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/enum/runPhase"
+    },
+    "run_status": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/enum/runStatus"
+    },
+    "audit_status": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/enum/auditStatus"
+    },
+    "gate": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/enum/gate"
+    },
+    "progress_pct": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "next_action": {
+      "type": "string",
+      "description": "Recommended next action for the agent"
+    },
+    "poll_after_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 600000
+    },
+    "stale": {
+      "type": "boolean"
+    },
+    "interrupted": {
+      "type": "boolean"
+    },
+    "recent_events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    }
+  },
+  "required": [
+    "kind",
+    "schema_version",
+    "run_id",
+    "phase",
+    "run_status",
+    "next_action",
+    "poll_after_ms"
+  ],
+  "additionalProperties": false
+}

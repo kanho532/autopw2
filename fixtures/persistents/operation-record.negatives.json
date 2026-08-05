@@ -1,0 +1,13 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/operation-record.schema.json",
+  "negative": [
+    {
+      "operation_id": "bad",
+      "tool": "x",
+      "client_request_id": "c",
+      "workspace_id": "ws",
+      "status": "ACCEPTED",
+      "kind": "run"
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/scenario-contract.schema.json",
+  "negative": [
+    {
+      "schema_version": "2.1"
+    }
+  ]
+}

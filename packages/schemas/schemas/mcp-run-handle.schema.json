@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopw.dev/schemas/2.1/mcp-run-handle.schema.json",
+  "title": "Stable Run handle returned on accepted",
+  "type": "object",
+  "properties": {
+    "run_id": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/runId"
+    },
+    "handle_token": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/handleToken"
+    },
+    "workspace_id": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/workspaceId"
+    },
+    "created_at": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/isoTimestamp"
+    }
+  },
+  "required": [
+    "run_id",
+    "handle_token",
+    "workspace_id"
+  ],
+  "additionalProperties": false
+}

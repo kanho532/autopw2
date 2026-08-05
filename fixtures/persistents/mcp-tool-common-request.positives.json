@@ -1,0 +1,10 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/mcp-tool-common-request.schema.json",
+  "positive": [
+    {
+      "schema_version": "2.1",
+      "client_request_id": "cr_abc-123",
+      "workspace_id": "ws_demo"
+    }
+  ]
+}

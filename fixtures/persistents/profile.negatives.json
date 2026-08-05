@@ -1,0 +1,13 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/profile.schema.json",
+  "negative": [
+    {
+      "schema_version": "2.1",
+      "gate": {
+        "strategy": "bogus"
+      },
+      "base_tier": "fast",
+      "lifecycle": "connect"
+    }
+  ]
+}

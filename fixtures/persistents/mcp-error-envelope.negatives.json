@@ -1,0 +1,20 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/mcp-error-envelope.schema.json",
+  "negative": [
+    {
+      "kind": "ok",
+      "schema_version": "2.1",
+      "error": {
+        "code": "X",
+        "message": "y"
+      }
+    },
+    {
+      "kind": "error",
+      "schema_version": "2.1",
+      "error": {
+        "message": "no code"
+      }
+    }
+  ]
+}

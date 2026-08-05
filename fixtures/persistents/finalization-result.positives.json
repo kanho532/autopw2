@@ -1,0 +1,12 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/finalization-result.schema.json",
+  "positive": [
+    {
+      "browsers_closed": true,
+      "agents_released": true,
+      "manage_target_closed": true,
+      "temp_secrets_cleared": true,
+      "gate_critical_ok": true
+    }
+  ]
+}

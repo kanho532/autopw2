@@ -1,0 +1,17 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/discovery.schema.json",
+  "negative": [
+    {
+      "schema_version": "2.1",
+      "observations": [],
+      "candidates": [],
+      "scenario_observations": [
+        {
+          "feature_id": "search",
+          "scenario": "madeup",
+          "observed": true
+        }
+      ]
+    }
+  ]
+}

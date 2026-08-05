@@ -1,0 +1,8 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/finalization-result.schema.json",
+  "negative": [
+    {
+      "browsers_closed": true
+    }
+  ]
+}

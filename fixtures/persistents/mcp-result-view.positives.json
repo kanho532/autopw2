@@ -1,0 +1,17 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/mcp-result-view.schema.json",
+  "positive": [
+    {
+      "kind": "ok",
+      "schema_version": "2.1",
+      "run_id": "run_0123456789abcdefghij",
+      "phase": "GATED",
+      "gate": "fail",
+      "audit_status": "COMPLETE",
+      "results_ref": {
+        "handle": "art_r1",
+        "kind": "results.json"
+      }
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/plan-template.schema.json",
+  "positive": [
+    {
+      "cache_key": "ck1",
+      "selections_digest": "sd1",
+      "planner_provider_id": "fixture",
+      "model_id": "fixture-model"
+    }
+  ]
+}

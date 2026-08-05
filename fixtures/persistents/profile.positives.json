@@ -1,0 +1,14 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/profile.schema.json",
+  "positive": [
+    {
+      "schema_version": "2.1",
+      "gate": {
+        "strategy": "product",
+        "min_p0_coverage_pct": 100
+      },
+      "base_tier": "fast",
+      "lifecycle": "connect"
+    }
+  ]
+}

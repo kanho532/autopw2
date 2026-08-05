@@ -1,0 +1,13 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/gate-draft.schema.json",
+  "positive": [
+    {
+      "gate": "fail",
+      "audit_status": "COMPLETE",
+      "p0_coverage_pct": 100,
+      "summary": {
+        "product_defects": 2
+      }
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/route-map.schema.json",
+  "positive": [
+    {
+      "schema_version": "2.1",
+      "ignore_globs": [
+        "docs/**"
+      ],
+      "mappings": [
+        {
+          "file_glob": "src/pages/**",
+          "routes": [
+            "/search"
+          ],
+          "features": [
+            "search"
+          ],
+          "propagate": false
+        }
+      ]
+    }
+  ]
+}

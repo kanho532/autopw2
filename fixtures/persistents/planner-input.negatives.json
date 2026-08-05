@@ -1,0 +1,19 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/planner-input.schema.json",
+  "negative": [
+    {
+      "schemaVersion": "2.1",
+      "skeletons": [],
+      "candidates": {},
+      "contractRefs": [],
+      "untrustedObservations": [
+        {
+          "observationId": "o1",
+          "untrusted": false,
+          "kind": "text",
+          "value": "x"
+        }
+      ]
+    }
+  ]
+}

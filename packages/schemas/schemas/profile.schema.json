@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopw.dev/schemas/2.1/profile.schema.json",
+  "title": "AutoPW profile",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/schemaVersion"
+    },
+    "gate": {
+      "type": "object",
+      "properties": {
+        "strategy": {
+          "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/enum/gateStrategy"
+        },
+        "min_p0_coverage_pct": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        }
+      },
+      "required": [
+        "strategy"
+      ],
+      "additionalProperties": false
+    },
+    "base_tier": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/enum/baseTier"
+    },
+    "matrix_budget": {
+      "type": "object",
+      "properties": {
+        "max_execution_instances": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "lifecycle": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/enum/lifecycleMode"
+    },
+    "auth_scope_id": {
+      "type": "string",
+      "description": "Approved auth scope id reference"
+    },
+    "browsers": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "description": "browser id"
+      }
+    },
+    "viewports": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "gate",
+    "base_tier"
+  ],
+  "additionalProperties": true
+}

@@ -1,0 +1,21 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/derivation.schema.json",
+  "positive": [
+    {
+      "schema_version": "2.1",
+      "skeleton": [
+        {
+          "case_id": "case_search_normal",
+          "feature_id": "search",
+          "scenario": "normal",
+          "effective_tier": "smoke",
+          "matrix_cell": "search:smoke:chromium",
+          "blocked": false
+        }
+      ],
+      "matrix": [],
+      "p0_required_total": 1,
+      "p0_coverage_pct": null
+    }
+  ]
+}

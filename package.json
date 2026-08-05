@@ -1,0 +1,28 @@
+{
+  "name": "autopw",
+  "version": "2.1.0-rc5.mcp-first",
+  "private": true,
+  "description": "AutoPW v2.1 MCP-First - Profile-driven Web quality audit engine as a Codex local MCP plugin. Phase 0 (M0: MCP Contract Frozen) scaffolding only.",
+  "type": "module",
+  "engines": {
+    "node": ">=20.10"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "verify:m0": "node tools/verify-m0.mjs",
+    "contract": "node tools/verify-m0.mjs --check contract",
+    "schema:test": "node tools/verify-m0.mjs --check schema",
+    "docs:check": "node tools/verify-m0.mjs --check docs",
+    "build:types": "tsc -p packages/mcp-contracts/tsconfig.json --noEmit && tsc -p packages/schemas/tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0",
+    "eslint": "^9.18.0"
+  }
+}

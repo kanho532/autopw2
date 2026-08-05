@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopw.dev/schemas/2.1/cleanup-result.schema.json",
+  "title": "Idempotent seed cleanup result",
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "const": "ok"
+    },
+    "run_id": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/runId"
+    },
+    "cleaned": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "description": ""
+      }
+    },
+    "idempotent": {
+      "type": "boolean"
+    },
+    "at": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/isoTimestamp"
+    }
+  },
+  "required": [
+    "kind",
+    "run_id",
+    "cleaned",
+    "idempotent",
+    "at"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,11 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/cleanup-result.schema.json",
+  "negative": [
+    {
+      "run_id": "bad",
+      "cleaned": [],
+      "idempotent": true,
+      "at": "2026-08-05T08:00:00Z"
+    }
+  ]
+}

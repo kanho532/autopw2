@@ -1,0 +1,15 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/execution-result.schema.json",
+  "positive": [
+    {
+      "execution_id": "EXE-0123456789abcdef",
+      "case_id": "case_search_normal",
+      "status": "PASSED",
+      "attempts": [],
+      "evidence_refs": [
+        "link"
+      ],
+      "at": "2026-08-05T08:00:00Z"
+    }
+  ]
+}

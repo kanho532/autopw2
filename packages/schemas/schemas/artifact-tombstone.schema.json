@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopw.dev/schemas/2.1/artifact-tombstone.schema.json",
+  "title": "Tombstone written before artifact deletion",
+  "type": "object",
+  "properties": {
+    "handle": {
+      "type": "string",
+      "description": "artifact handle"
+    },
+    "kind": {
+      "type": "string",
+      "description": "artifact kind"
+    },
+    "deleted_at": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/isoTimestamp"
+    },
+    "expires_at": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/isoTimestamp"
+    }
+  },
+  "required": [
+    "handle",
+    "kind",
+    "deleted_at",
+    "expires_at"
+  ],
+  "additionalProperties": false
+}

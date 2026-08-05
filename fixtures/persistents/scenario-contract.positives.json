@@ -1,0 +1,16 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/scenario-contract.schema.json",
+  "positive": [
+    {
+      "schema_version": "2.1",
+      "features": {
+        "search": {
+          "reset_strategy": {
+            "kind": "seed_adapter",
+            "idempotent": true
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "valid": [
+    [
+      "CREATED",
+      "TARGET_READY"
+    ],
+    [
+      "CREATED",
+      "TERMINALIZING"
+    ],
+    [
+      "RUNNING",
+      "EXECUTION_FINISHED"
+    ],
+    [
+      "RUNNING",
+      "TERMINALIZING"
+    ],
+    [
+      "TERMINALIZING",
+      "RUNTIME_FINALIZED"
+    ],
+    [
+      "REPORTED",
+      "GATED"
+    ]
+  ],
+  "invalid": [
+    [
+      "GATED",
+      "RUNNING"
+    ],
+    [
+      "AUDITED",
+      "TERMINALIZING"
+    ],
+    [
+      "REPORTED",
+      "TERMINALIZING"
+    ],
+    [
+      "CREATED",
+      "GATED"
+    ],
+    [
+      "FAILED",
+      "GATED"
+    ]
+  ]
+}

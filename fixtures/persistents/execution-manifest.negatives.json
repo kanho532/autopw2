@@ -1,0 +1,8 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/execution-manifest.schema.json",
+  "negative": [
+    {
+      "batches": []
+    }
+  ]
+}

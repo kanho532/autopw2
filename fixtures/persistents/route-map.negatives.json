@@ -1,0 +1,13 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/route-map.schema.json",
+  "negative": [
+    {
+      "schema_version": "2.1",
+      "mappings": [
+        {
+          "file_glob": "src/**"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/mcp-error-envelope.schema.json",
+  "positive": [
+    {
+      "kind": "error",
+      "schema_version": "2.1",
+      "error": {
+        "code": "UNAUTHORIZED_WORKSPACE",
+        "message": "workspace not authorized"
+      },
+      "retryable": false,
+      "poll_after_ms": 0
+    }
+  ]
+}

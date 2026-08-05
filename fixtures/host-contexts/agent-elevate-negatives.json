@@ -1,0 +1,16 @@
+{
+  "mcp_host_context": {
+    "workspace_authorization": {
+      "workspace_id": "ws_demo",
+      "workspace_realpath": "D:/projects/demo",
+      "deny_symlink_escape": true
+    },
+    "trust_mode": "elevated",
+    "auth_scope": {
+      "auth_scope_id": "as_demo",
+      "mode": "none",
+      "isolated": true
+    },
+    "caller": "codex"
+  }
+}

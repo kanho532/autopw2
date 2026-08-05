@@ -1,0 +1,11 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/completion-audit.schema.json",
+  "positive": [
+    {
+      "audit_status": "COMPLETE",
+      "case_reconciliation": "COMPLETE",
+      "instance_reconciliation": "COMPLETE",
+      "evidence_complete": true
+    }
+  ]
+}

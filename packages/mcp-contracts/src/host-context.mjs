@@ -1,0 +1,88 @@
+// MCP Host Context contract. Defines the trusted context entities the MCP Host
+// injects: McpHostContext, WorkspaceAuthorization, AuthScope, ResourceBudget,
+// ConfigSource. Tool parameters can only narrow these (intersect), never widen.
+import { ref } from "../../schemas/src/common.mjs";
+import { LIMITS } from "../../schemas/src/limits.mjs";
+
+const DRAFT = "https://json-schema.org/draft/2020-12/schema";
+
+export const HOST_CONTEXT_CONTRACT = {
+  $schema: DRAFT,
+  $id: "https://autopw.dev/contracts/2.1/host-context.contract.json",
+  title: "MCP Host Context contract",
+  description: "Trusted context injected by the Codex/MCP host. Effective permission = HostContext AND ServerPolicy AND ToolRequest AND ProfileSafety; tool request and profile may only narrow.",
+  type: "object",
+  properties: { mcp_host_context: { $ref: "#/$defs/McpHostContext" } },
+  required: ["mcp_host_context"],
+  additionalProperties: false,
+  $defs: {
+    McpHostContext: {
+      type: "object",
+      properties: {
+        workspace_authorization: { $ref: "#/$defs/WorkspaceAuthorization" },
+        trust_mode: { $ref: ref.enum("trustMode") },
+        auth_scope: { $ref: "#/$defs/AuthScope" },
+        resource_budget: { $ref: "#/$defs/ResourceBudget" },
+        config_source: { $ref: "#/$defs/ConfigSource" },
+        caller: { type: "string", description: "Caller identity" },
+        session_id: { type: "string", description: "MCP session id (not a Run lifecycle boundary)" },
+        installation_id: { type: "string" },
+        policy_version: { type: "string" }
+      },
+      required: ["workspace_authorization", "trust_mode", "auth_scope", "caller"],
+      additionalProperties: false
+    },
+    WorkspaceAuthorization: {
+      type: "object",
+      properties: {
+        workspace_id: { $ref: ref.def("workspaceId") },
+        workspace_realpath: { type: "string", description: "resolved absolute realpath of authorized workspace root" },
+        allow_subpaths: { type: "array", items: { type: "string" }, description: "allowed project_subpath globs" },
+        deny_symlink_escape: { type: "boolean", const: true, description: "symlinks/junctions escaping realpath must be refused" },
+        project_subpath: { $ref: ref.def("projectSubpath") }
+      },
+      required: ["workspace_id", "workspace_realpath", "deny_symlink_escape"],
+      additionalProperties: false
+    },
+    AuthScope: {
+      type: "object",
+      properties: {
+        auth_scope_id: { type: "string", description: "non-secret stable id derived from account/tenant/auth state" },
+        mode: { type: "string", enum: ["none", "credentials", "storage_state"] },
+        one_shot: { type: "boolean", description: "use single-use least-privilege identities" },
+        isolated: { type: "boolean", const: true, description: "separate tenant; never reuse dev/prod credentials" }
+      },
+      required: ["auth_scope_id", "mode", "isolated"],
+      additionalProperties: false
+    },
+    ResourceBudget: {
+      type: "object",
+      properties: {
+        max_concurrent_runs: { type: "integer", minimum: 1 },
+        max_execution_instances_per_run: { type: "integer", minimum: LIMITS.maxExecutionInstancesPerRun.min },
+        max_output_bytes: { type: "integer", minimum: 1 },
+        max_artifact_bytes: { type: "integer", minimum: 0 }
+      },
+      required: ["max_concurrent_runs", "max_execution_instances_per_run"],
+      additionalProperties: false
+    },
+    ConfigSource: {
+      type: "object",
+      description: "Source of authoritative Profile/Policy/RouteMap/Contract. For untrusted_pr these must come from base/fixed/signed overlay, never from the PR head.",
+      properties: {
+        base_revision: { type: "string" },
+        fixed_path: { type: "string" },
+        approved_overlay: { type: "string", description: "signed overlay path" },
+        pr_head_allowed: { type: "boolean", description: "whether head PR files may be authoritative (false in untrusted_pr)" }
+      },
+      additionalProperties: false
+    }
+  },
+  rules: [
+    "effective_permission = HostContext AND ServerPolicy AND ToolRequest AND ProfileSafety",
+    "tool parameters may only narrow (intersect), never widen workspace/trust/auth/network/production",
+    "untrusted_pr forces connect mode and refuses PR-supplied Profile/Adapter/startup",
+    "auth_scope_id must be host-generated and Profile-referenced, never self-declared",
+    "host-provided workspace realpath is authoritative; symlink/junction escape is rejected"
+  ]
+};

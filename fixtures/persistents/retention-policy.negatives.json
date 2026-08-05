@@ -1,0 +1,11 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/retention-policy.schema.json",
+  "negative": [
+    {
+      "schema_version": "2.1",
+      "operation_ttl_ms": 86400000,
+      "run_ttl_ms": 604800000,
+      "evidence_ttl_ms": 100
+    }
+  ]
+}

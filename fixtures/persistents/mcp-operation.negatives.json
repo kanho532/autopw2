@@ -1,0 +1,13 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/mcp-operation.schema.json",
+  "negative": [
+    {
+      "operation_id": "bad",
+      "tool": "run_audit",
+      "status": "RUNNING",
+      "workspace_id": "ws_demo",
+      "created_at": "2026-08-05T08:00:00Z",
+      "updated_at": "2026-08-05T08:00:00Z"
+    }
+  ]
+}

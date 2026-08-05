@@ -1,0 +1,14 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/retention-policy.schema.json",
+  "positive": [
+    {
+      "schema_version": "2.1",
+      "operation_ttl_ms": 86400000,
+      "run_ttl_ms": 604800000,
+      "evidence_ttl_ms": 2592000000,
+      "high_watermark": 100000,
+      "low_watermark": 10000,
+      "tombstone_queryable": true
+    }
+  ]
+}

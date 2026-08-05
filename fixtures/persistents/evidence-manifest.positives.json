@@ -1,0 +1,15 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/evidence-manifest.schema.json",
+  "positive": [
+    {
+      "execution_id": "EXE-0123456789abcdef",
+      "items": [
+        {
+          "handle": "art_shot1",
+          "kind": "screenshot"
+        }
+      ],
+      "redacted": true
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/terminalization.schema.json",
+  "positive": [
+    {
+      "reason": "PLAN_DEFECT",
+      "trigger_phase": "PLAN_FILLED",
+      "existing_artifacts": [],
+      "outstanding_scope": [
+        "case_search_normal"
+      ],
+      "expected_gate": "incomplete"
+    }
+  ]
+}

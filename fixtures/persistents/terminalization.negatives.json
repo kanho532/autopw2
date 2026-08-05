@@ -1,0 +1,9 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/terminalization.schema.json",
+  "negative": [
+    {
+      "reason": "PLAN_DEFECT",
+      "trigger_phase": "PLAN_FILLED"
+    }
+  ]
+}

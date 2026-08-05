@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopw.dev/schemas/2.1/scenario-contract.schema.json",
+  "title": "Scenario contract",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/schemaVersion"
+    },
+    "features": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "controls": {
+            "type": "array",
+            "additionalProperties": true
+          },
+          "input_templates": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "validation_texts": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "expectations": {
+            "type": "array",
+            "additionalProperties": true
+          },
+          "mock_endpoints": {
+            "type": "array",
+            "additionalProperties": true
+          },
+          "reset_strategy": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "seed_adapter",
+                  "api",
+                  "none"
+                ]
+              },
+              "idempotent": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "kind",
+              "idempotent"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "features"
+  ],
+  "additionalProperties": false
+}

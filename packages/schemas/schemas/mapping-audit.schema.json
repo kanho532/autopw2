@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopw.dev/schemas/2.1/mapping-audit.schema.json",
+  "title": "Planned vs generated logical case mapping",
+  "type": "object",
+  "properties": {
+    "planned_case_ids": {
+      "type": "array",
+      "items": {
+        "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/caseId"
+      }
+    },
+    "generated_case_ids": {
+      "type": "array",
+      "items": {
+        "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/caseId"
+      }
+    },
+    "match": {
+      "type": "string",
+      "enum": [
+        "COMPLETE",
+        "MISMATCH"
+      ]
+    }
+  },
+  "required": [
+    "planned_case_ids",
+    "generated_case_ids",
+    "match"
+  ],
+  "additionalProperties": false
+}

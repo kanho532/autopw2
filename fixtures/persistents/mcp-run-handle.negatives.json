@@ -1,0 +1,10 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/mcp-run-handle.schema.json",
+  "negative": [
+    {
+      "run_id": "run_short",
+      "handle_token": "tok_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "workspace_id": "ws_demo"
+    }
+  ]
+}

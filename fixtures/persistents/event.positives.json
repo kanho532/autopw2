@@ -1,0 +1,12 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/event.schema.json",
+  "positive": [
+    {
+      "seq": 1,
+      "kind": "PHASE_COMMITTED",
+      "phase": "RUNNING",
+      "at": "2026-08-05T08:00:00Z",
+      "detail": {}
+    }
+  ]
+}

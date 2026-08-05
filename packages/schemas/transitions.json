@@ -1,0 +1,135 @@
+{
+  "schema_version": "2.1",
+  "transitions": [
+    {
+      "from": "CREATED",
+      "to": "TARGET_READY",
+      "type": "normal"
+    },
+    {
+      "from": "CREATED",
+      "to": "TERMINALIZING",
+      "type": "branch"
+    },
+    {
+      "from": "TARGET_READY",
+      "to": "SEED_RESOLVED",
+      "type": "normal"
+    },
+    {
+      "from": "TARGET_READY",
+      "to": "TERMINALIZING",
+      "type": "branch"
+    },
+    {
+      "from": "SEED_RESOLVED",
+      "to": "DISCOVERED",
+      "type": "normal"
+    },
+    {
+      "from": "SEED_RESOLVED",
+      "to": "TERMINALIZING",
+      "type": "branch"
+    },
+    {
+      "from": "DISCOVERED",
+      "to": "COVERAGE_DERIVED",
+      "type": "normal"
+    },
+    {
+      "from": "DISCOVERED",
+      "to": "TERMINALIZING",
+      "type": "branch"
+    },
+    {
+      "from": "COVERAGE_DERIVED",
+      "to": "PLAN_FILLED",
+      "type": "normal"
+    },
+    {
+      "from": "COVERAGE_DERIVED",
+      "to": "TERMINALIZING",
+      "type": "branch"
+    },
+    {
+      "from": "PLAN_FILLED",
+      "to": "PLAN_FROZEN",
+      "type": "normal"
+    },
+    {
+      "from": "PLAN_FILLED",
+      "to": "TERMINALIZING",
+      "type": "branch"
+    },
+    {
+      "from": "PLAN_FROZEN",
+      "to": "SUITE_GENERATED",
+      "type": "normal"
+    },
+    {
+      "from": "PLAN_FROZEN",
+      "to": "TERMINALIZING",
+      "type": "branch"
+    },
+    {
+      "from": "SUITE_GENERATED",
+      "to": "SUITE_FROZEN",
+      "type": "normal"
+    },
+    {
+      "from": "SUITE_GENERATED",
+      "to": "TERMINALIZING",
+      "type": "branch"
+    },
+    {
+      "from": "SUITE_FROZEN",
+      "to": "RUNNING",
+      "type": "normal"
+    },
+    {
+      "from": "SUITE_FROZEN",
+      "to": "TERMINALIZING",
+      "type": "branch"
+    },
+    {
+      "from": "RUNNING",
+      "to": "EXECUTION_FINISHED",
+      "type": "normal"
+    },
+    {
+      "from": "RUNNING",
+      "to": "TERMINALIZING",
+      "type": "branch"
+    },
+    {
+      "from": "EXECUTION_FINISHED",
+      "to": "RUNTIME_FINALIZED",
+      "type": "normal"
+    },
+    {
+      "from": "EXECUTION_FINISHED",
+      "to": "TERMINALIZING",
+      "type": "branch"
+    },
+    {
+      "from": "TERMINALIZING",
+      "to": "RUNTIME_FINALIZED",
+      "type": "normal"
+    },
+    {
+      "from": "RUNTIME_FINALIZED",
+      "to": "AUDITED",
+      "type": "normal"
+    },
+    {
+      "from": "AUDITED",
+      "to": "REPORTED",
+      "type": "normal"
+    },
+    {
+      "from": "REPORTED",
+      "to": "GATED",
+      "type": "normal"
+    }
+  ]
+}

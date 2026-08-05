@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopw.dev/schemas/2.1/plan-template.schema.json",
+  "title": "Cached plan template (candidate selections)",
+  "type": "object",
+  "properties": {
+    "cache_key": {
+      "type": "string",
+      "description": ""
+    },
+    "selections_digest": {
+      "type": "string",
+      "description": ""
+    },
+    "planner_provider_id": {
+      "type": "string",
+      "description": ""
+    },
+    "model_id": {
+      "type": "string",
+      "description": ""
+    }
+  },
+  "required": [
+    "cache_key",
+    "selections_digest"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopw.dev/contracts/2.1/tools/run_audit.tool.json",
+  "name": "run_audit",
+  "description": "Create and start a managed audit Run. Returns accepted with a persistent run_handle that survives MCP session, transport and Codex process disconnects. Cancel only via cancel_run or host close policy. Returns MATRIX_BUDGET_EXCEEDED instead of silently trimming a full matrix.",
+  "input_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://autopw.dev/contracts/2.1/tools/run_audit.tool.json#/input",
+    "title": "run_audit input",
+    "description": "Audit run request",
+    "type": "object",
+    "properties": {
+      "schema_version": {
+        "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/schemaVersion"
+      },
+      "client_request_id": {
+        "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/clientRequestId"
+      },
+      "workspace_id": {
+        "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/workspaceId"
+      },
+      "project_subpath": {
+        "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/projectSubpath"
+      },
+      "profile_path": {
+        "type": "string",
+        "description": "relative profile path"
+      },
+      "base_tier": {
+        "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/enum/baseTier"
+      },
+      "matrix_budget": {
+        "type": "object",
+        "properties": {
+          "max_execution_instances": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "auth_scope_id": {
+        "type": "string",
+        "description": "approved auth scope id reference"
+      },
+      "lifecycle": {
+        "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/enum/lifecycleMode"
+      }
+    },
+    "required": [
+      "schema_version",
+      "client_request_id",
+      "workspace_id",
+      "profile_path",
+      "base_tier"
+    ],
+    "additionalProperties": false
+  },
+  "result_union": [
+    {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "const": "accepted"
+        },
+        "schema_version": {
+          "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/schemaVersion"
+        },
+        "operation_id": {
+          "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/operationId"
+        },
+        "poll_after_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 600000
+        },
+        "run_handle": {
+          "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/runId"
+        }
+      },
+      "required": [
+        "kind",
+        "schema_version",
+        "operation_id",
+        "poll_after_ms",
+        "run_handle"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "$ref": "https://autopw.dev/schemas/2.1/mcp-error-envelope.schema.json"
+    }
+  ],
+  "creates_operation": true,
+  "requires_client_request_id": true,
+  "async_default": true,
+  "retryable": true,
+  "authorization_scope": [
+    "workspace",
+    "auth",
+    "network"
+  ],
+  "returns_max_bytes": 524288,
+  "examples": {
+    "request": [
+      {
+        "schema_version": "2.1",
+        "client_request_id": "cr_run1",
+        "workspace_id": "ws_demo",
+        "project_subpath": ".",
+        "profile_path": ".autopw/profile.yaml",
+        "base_tier": "fast"
+      }
+    ],
+    "ok": [
+      {
+        "kind": "accepted",
+        "schema_version": "2.1",
+        "operation_id": "op_0123456789abcdefghij",
+        "run_handle": "run_0123456789abcdefghij",
+        "poll_after_ms": 5000
+      }
+    ],
+    "error": [
+      {
+        "kind": "error",
+        "schema_version": "2.1",
+        "error": {
+          "code": "MATRIX_BUDGET_EXCEEDED",
+          "message": "projected execution instances exceed effective matrix budget"
+        },
+        "retryable": false
+      },
+      {
+        "kind": "error",
+        "schema_version": "2.1",
+        "error": {
+          "code": "UNAUTHORIZED_WORKSPACE",
+          "message": "workspace not authorized"
+        },
+        "retryable": false
+      }
+    ]
+  }
+}

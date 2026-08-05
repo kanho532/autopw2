@@ -1,0 +1,16 @@
+node_modules/
+dist/
+build/
+*.log
+.DS_Store
+coverage/
+.vscode/
+.idea/
+*.tsbuildinfo
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+tools/.cache/
+fixtures/generated/
+.autopw/
+.npm-cache/

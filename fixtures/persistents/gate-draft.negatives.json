@@ -1,0 +1,9 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/gate-draft.schema.json",
+  "negative": [
+    {
+      "gate": "warn",
+      "audit_status": "COMPLETE"
+    }
+  ]
+}

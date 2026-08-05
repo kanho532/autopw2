@@ -1,0 +1,6 @@
+{
+  "name": "@autopw/demo-target",
+  "version": "2.1.0-rc5.mcp-first",
+  "private": true,
+  "description": "Local demo target app for deterministic baseline runs (Phase 0 placeholder)."
+}

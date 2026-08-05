@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopw.dev/schemas/2.1/retention-policy.schema.json",
+  "title": "Versioned retention policy",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/schemaVersion"
+    },
+    "operation_ttl_ms": {
+      "type": "integer",
+      "minimum": 1000
+    },
+    "run_ttl_ms": {
+      "type": "integer",
+      "minimum": 1000
+    },
+    "evidence_ttl_ms": {
+      "type": "integer",
+      "minimum": 1000
+    },
+    "cache_ttl_ms": {
+      "type": "integer",
+      "minimum": 1000
+    },
+    "artifact_ttl_ms": {
+      "type": "integer",
+      "minimum": 1000
+    },
+    "high_watermark": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "low_watermark": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "tombstone_queryable": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "schema_version",
+    "operation_ttl_ms",
+    "run_ttl_ms",
+    "evidence_ttl_ms",
+    "high_watermark"
+  ],
+  "additionalProperties": true
+}

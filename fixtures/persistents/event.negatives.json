@@ -1,0 +1,10 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/event.schema.json",
+  "negative": [
+    {
+      "seq": 0,
+      "kind": "x",
+      "at": "2026-08-05T08:00:00Z"
+    }
+  ]
+}

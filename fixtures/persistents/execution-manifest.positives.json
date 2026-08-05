@@ -1,0 +1,24 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/execution-manifest.schema.json",
+  "positive": [
+    {
+      "batches": [
+        {
+          "batch_id": "BAT-0123456789abcdef",
+          "tier": "fast",
+          "browser": "chromium",
+          "locale": "en-US",
+          "auth_scope_id": "as_demo"
+        }
+      ],
+      "instances": [
+        {
+          "execution_id": "EXE-0123456789abcdef",
+          "case_id": "case_search_normal",
+          "batch_id": "BAT-0123456789abcdef",
+          "status": "NOT_RUN"
+        }
+      ]
+    }
+  ]
+}

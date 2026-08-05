@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopw.dev/schemas/2.1/planner-output.schema.json",
+  "title": "Planner candidate selection output",
+  "type": "object",
+  "properties": {
+    "caseSelections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "caseId": {
+            "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/caseId"
+          },
+          "actionSelections": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "actionTemplateId": {
+                  "type": "string",
+                  "description": ""
+                },
+                "routeId": {
+                  "type": "string",
+                  "description": ""
+                },
+                "locatorId": {
+                  "type": "string",
+                  "description": ""
+                },
+                "inputId": {
+                  "type": "string",
+                  "description": ""
+                },
+                "endpointId": {
+                  "type": "string",
+                  "description": ""
+                }
+              },
+              "required": [
+                "actionTemplateId"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "expectationIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": ""
+            }
+          },
+          "description": {
+            "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/descriptionText"
+          }
+        },
+        "required": [
+          "caseId",
+          "actionSelections",
+          "expectationIds"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "caseSelections"
+  ],
+  "additionalProperties": false
+}

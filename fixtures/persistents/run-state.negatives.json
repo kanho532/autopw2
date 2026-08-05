@@ -1,0 +1,12 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/run-state.schema.json",
+  "negative": [
+    {
+      "run_id": "run_0123456789abcdefghij",
+      "state_version": 1,
+      "phase": "GARBAGE",
+      "run_status": "ACTIVE",
+      "owner": "w"
+    }
+  ]
+}

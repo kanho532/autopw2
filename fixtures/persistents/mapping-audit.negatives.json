@@ -1,0 +1,14 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/mapping-audit.schema.json",
+  "negative": [
+    {
+      "planned_case_ids": [
+        "a"
+      ],
+      "generated_case_ids": [
+        "b"
+      ],
+      "match": "BOGUS"
+    }
+  ]
+}

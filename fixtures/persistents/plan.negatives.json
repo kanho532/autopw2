@@ -1,0 +1,10 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/plan.schema.json",
+  "negative": [
+    {
+      "schema_version": "2.1",
+      "cases": [],
+      "frozen_at": "not-a-time"
+    }
+  ]
+}

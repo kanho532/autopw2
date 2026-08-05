@@ -1,0 +1,12 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/checkpoint.schema.json",
+  "positive": [
+    {
+      "execution_id": "EXE-0123456789abcdef",
+      "case_id": "case_search_normal",
+      "status": "RUNNING",
+      "attempt": 1,
+      "at": "2026-08-05T08:00:00Z"
+    }
+  ]
+}

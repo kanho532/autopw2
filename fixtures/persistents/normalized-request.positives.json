@@ -1,0 +1,11 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/normalized-request.schema.json",
+  "positive": [
+    {
+      "schema_version": "2.1",
+      "profile_digest": "d1",
+      "tier": "fast",
+      "mode": "connect"
+    }
+  ]
+}

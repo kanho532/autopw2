@@ -1,0 +1,11 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/host-context-snapshot.schema.json",
+  "negative": [
+    {
+      "workspace_id": "ws_demo",
+      "workspace_realpath": "D:/projects/demo",
+      "trust_mode": "elevated",
+      "caller": "codex"
+    }
+  ]
+}

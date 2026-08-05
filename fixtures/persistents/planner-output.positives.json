@@ -1,0 +1,20 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/planner-output.schema.json",
+  "positive": [
+    {
+      "caseSelections": [
+        {
+          "caseId": "case_search_normal",
+          "actionSelections": [
+            {
+              "actionTemplateId": "act_open_search"
+            }
+          ],
+          "expectationIds": [
+            "exp_results_visible"
+          ]
+        }
+      ]
+    }
+  ]
+}

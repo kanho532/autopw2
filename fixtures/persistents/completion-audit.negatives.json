@@ -1,0 +1,11 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/completion-audit.schema.json",
+  "negative": [
+    {
+      "audit_status": "BOGUS",
+      "case_reconciliation": "MISMATCH",
+      "instance_reconciliation": "COMPLETE",
+      "evidence_complete": true
+    }
+  ]
+}

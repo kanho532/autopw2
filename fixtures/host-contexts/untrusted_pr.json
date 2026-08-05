@@ -1,0 +1,22 @@
+{
+  "mcp_host_context": {
+    "workspace_authorization": {
+      "workspace_id": "ws_pr",
+      "workspace_realpath": "D:/projects/pr",
+      "deny_symlink_escape": true
+    },
+    "trust_mode": "untrusted_pr",
+    "auth_scope": {
+      "auth_scope_id": "as_one_shot",
+      "mode": "credentials",
+      "one_shot": true,
+      "isolated": true
+    },
+    "caller": "codex-ci",
+    "config_source": {
+      "base_revision": "origin/main",
+      "pr_head_allowed": false
+    },
+    "policy_version": "1.0.0"
+  }
+}

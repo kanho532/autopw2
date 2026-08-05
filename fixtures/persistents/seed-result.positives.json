@@ -1,0 +1,11 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/seed-result.schema.json",
+  "positive": [
+    {
+      "result": "SKIPPED",
+      "reset_capable": false,
+      "idempotent": true,
+      "at": "2026-08-05T08:00:00Z"
+    }
+  ]
+}

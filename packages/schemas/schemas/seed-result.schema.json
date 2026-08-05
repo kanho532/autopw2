@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopw.dev/schemas/2.1/seed-result.schema.json",
+  "title": "SEED_RESOLVED result",
+  "type": "object",
+  "properties": {
+    "result": {
+      "type": "string",
+      "enum": [
+        "APPLIED",
+        "SKIPPED"
+      ]
+    },
+    "reset_capable": {
+      "type": "boolean"
+    },
+    "idempotent": {
+      "type": "boolean"
+    },
+    "at": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/isoTimestamp"
+    }
+  },
+  "required": [
+    "result",
+    "reset_capable",
+    "idempotent",
+    "at"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,338 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopw.dev/schemas/2.1/common.schema.json",
+  "title": "AutoPW common definitions",
+  "description": "Shared enums identifiers and envelope defs referenced by all AutoPW schemas and tool contracts.",
+  "type": "object",
+  "$defs": {
+    "enum": {
+      "runPhase": {
+        "type": "string",
+        "enum": [
+          "CREATED",
+          "TARGET_READY",
+          "SEED_RESOLVED",
+          "DISCOVERED",
+          "COVERAGE_DERIVED",
+          "PLAN_FILLED",
+          "PLAN_FROZEN",
+          "SUITE_GENERATED",
+          "SUITE_FROZEN",
+          "RUNNING",
+          "EXECUTION_FINISHED",
+          "RUNTIME_FINALIZED",
+          "TERMINALIZING",
+          "AUDITED",
+          "REPORTED",
+          "GATED"
+        ]
+      },
+      "runPhaseNormal": {
+        "type": "string",
+        "enum": [
+          "CREATED",
+          "TARGET_READY",
+          "SEED_RESOLVED",
+          "DISCOVERED",
+          "COVERAGE_DERIVED",
+          "PLAN_FILLED",
+          "PLAN_FROZEN",
+          "SUITE_GENERATED",
+          "SUITE_FROZEN",
+          "RUNNING",
+          "EXECUTION_FINISHED",
+          "RUNTIME_FINALIZED",
+          "AUDITED",
+          "REPORTED",
+          "GATED"
+        ]
+      },
+      "runStatus": {
+        "type": "string",
+        "enum": [
+          "ACTIVE",
+          "INTERRUPTED",
+          "FAILED",
+          "COMPLETED"
+        ]
+      },
+      "auditStatus": {
+        "type": "string",
+        "enum": [
+          "COMPLETE",
+          "INCOMPLETE"
+        ]
+      },
+      "operationStatus": {
+        "type": "string",
+        "enum": [
+          "ACCEPTED",
+          "RUNNING",
+          "COMPLETED",
+          "FAILED",
+          "CANCELLED"
+        ]
+      },
+      "gate": {
+        "type": "string",
+        "enum": [
+          "incomplete",
+          "infra",
+          "fail",
+          "unstable",
+          "pass"
+        ]
+      },
+      "gatePriority": {
+        "type": "string",
+        "enum": [
+          "incomplete",
+          "infra",
+          "fail",
+          "unstable",
+          "pass"
+        ]
+      },
+      "baseTier": {
+        "type": "string",
+        "enum": [
+          "smoke",
+          "fast",
+          "full"
+        ]
+      },
+      "scenario": {
+        "type": "string",
+        "enum": [
+          "normal",
+          "required_field",
+          "invalid_input",
+          "boundary",
+          "empty_state",
+          "service_error",
+          "network_failure"
+        ]
+      },
+      "executionStatus": {
+        "type": "string",
+        "enum": [
+          "NOT_RUN",
+          "RUNNING",
+          "PASSED",
+          "FAILED",
+          "FLAKY",
+          "INTERRUPTED",
+          "BLOCKED_RESUME",
+          "INFRA_BLOCKED"
+        ]
+      },
+      "executionTerminal": {
+        "type": "string",
+        "enum": [
+          "PASSED",
+          "FAILED",
+          "FLAKY"
+        ]
+      },
+      "priority": {
+        "type": "string",
+        "enum": [
+          "P0",
+          "P1",
+          "P2"
+        ]
+      },
+      "issueClassification": {
+        "type": "string",
+        "enum": [
+          "PRODUCT_DEFECT",
+          "TEST_DEFECT",
+          "PLAN_DEFECT",
+          "INFRA_DEFECT",
+          "FLAKY"
+        ]
+      },
+      "classificationConfidence": {
+        "type": "string",
+        "enum": [
+          "HIGH",
+          "MEDIUM",
+          "LOW"
+        ]
+      },
+      "trustMode": {
+        "type": "string",
+        "enum": [
+          "trusted",
+          "untrusted_pr"
+        ]
+      },
+      "lifecycleMode": {
+        "type": "string",
+        "enum": [
+          "connect",
+          "manage"
+        ]
+      },
+      "gateStrategy": {
+        "type": "string",
+        "enum": [
+          "product",
+          "strict"
+        ]
+      },
+      "terminalizationReason": {
+        "type": "string",
+        "enum": [
+          "PLAN_DEFECT",
+          "SEED_EXHAUSTED",
+          "TEST_DEFECT_UNSAFE",
+          "INFRA_BLOCKED_GLOBAL",
+          "BUDGET_EXCEEDED",
+          "CANCEL_REQUESTED"
+        ]
+      },
+      "fatalFailureClass": {
+        "type": "string",
+        "enum": [
+          "STORAGE_INTEGRITY",
+          "SCHEMA_BUNDLE_INVALID",
+          "TRUST_BOUNDARY_BROKEN",
+          "DIRECTORY_ANCHOR_LOST",
+          "STATE_CORRUPTED"
+        ]
+      },
+      "toolResultKind": {
+        "type": "string",
+        "enum": [
+          "ok",
+          "error"
+        ]
+      }
+    },
+    "schemaVersion": {
+      "type": "string",
+      "pattern": "^2\\.(1)(\\.[0-9]+)?(-rc[0-9]+)?(-mcp-first)?$",
+      "description": "AutoPW protocol version"
+    },
+    "workspaceId": {
+      "type": "string",
+      "description": "Host-issued workspace identifier",
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9_.:-]+$"
+    },
+    "projectSubpath": {
+      "type": "string",
+      "description": "Project subpath inside authorized workspace realpath",
+      "maxLength": 320,
+      "pattern": "^[A-Za-z0-9_./@\\-]+$"
+    },
+    "clientRequestId": {
+      "type": "string",
+      "description": "Idempotency key for create-type MCP calls",
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9_.:-]+$"
+    },
+    "operationId": {
+      "type": "string",
+      "description": "Stable Operation identifier",
+      "maxLength": 64,
+      "pattern": "^op_[A-Za-z0-9]{20}$"
+    },
+    "runId": {
+      "type": "string",
+      "description": "Stable Run identifier",
+      "maxLength": 64,
+      "pattern": "^run_[A-Za-z0-9]{20}$"
+    },
+    "handleToken": {
+      "type": "string",
+      "description": "Unguessable run handle token",
+      "maxLength": 96,
+      "pattern": "^[A-Za-z0-9_-]{32,}$"
+    },
+    "caseId": {
+      "type": "string",
+      "description": "Stable logical case identifier",
+      "maxLength": 96,
+      "pattern": "^[A-Za-z0-9_.:-]+$"
+    },
+    "executionId": {
+      "type": "string",
+      "description": "Compute execution instance identifier",
+      "maxLength": 96,
+      "pattern": "^EXE-[A-Za-z0-9]{16}$"
+    },
+    "batchId": {
+      "type": "string",
+      "description": "Execution batch identifier",
+      "maxLength": 96,
+      "pattern": "^BAT-[A-Za-z0-9]{16}$"
+    },
+    "featureId": {
+      "type": "string",
+      "description": "Feature identifier",
+      "maxLength": 96,
+      "pattern": "^[A-Za-z0-9_.:-]+$"
+    },
+    "isoTimestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "untrustedData": {
+      "oneOf": [
+        {
+          "type": "string",
+          "maxLength": 5000
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string"
+            },
+            "value": {
+              "type": "string",
+              "maxLength": 5000
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "additionalProperties": false
+        }
+      ],
+      "description": "Page content marked untrusted; never interpreted as control"
+    },
+    "descriptionText": {
+      "type": "string",
+      "maxLength": 1000,
+      "description": "Render-only text escaped before display"
+    },
+    "artifactRef": {
+      "type": "object",
+      "properties": {
+        "handle": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "handle",
+        "kind"
+      ],
+      "additionalProperties": false,
+      "description": "Opaque artifact reference; no host absolute path returned"
+    },
+    "errorEnvelope": {
+      "$ref": "https://autopw.dev/schemas/2.1/mcp-error-envelope.schema.json"
+    }
+  }
+}

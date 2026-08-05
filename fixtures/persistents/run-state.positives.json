@@ -1,0 +1,17 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/run-state.schema.json",
+  "positive": [
+    {
+      "run_id": "run_0123456789abcdefghij",
+      "state_version": 1,
+      "phase": "RUNNING",
+      "run_status": "ACTIVE",
+      "owner": "worker-1",
+      "lease": {
+        "ttl_ms": 60000,
+        "heartbeat_ms": 5000,
+        "acquired_at": "2026-08-05T08:00:00Z"
+      }
+    }
+  ]
+}

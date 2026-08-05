@@ -1,0 +1,18 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/plan.schema.json",
+  "positive": [
+    {
+      "schema_version": "2.1",
+      "cases": [
+        {
+          "case_id": "case_search_normal",
+          "feature_id": "search",
+          "scenario": "normal",
+          "effective_tier": "fast",
+          "steps": []
+        }
+      ],
+      "frozen_at": "2026-08-05T08:00:00Z"
+    }
+  ]
+}

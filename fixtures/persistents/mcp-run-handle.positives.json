@@ -1,0 +1,11 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/mcp-run-handle.schema.json",
+  "positive": [
+    {
+      "run_id": "run_0123456789abcdefghij",
+      "handle_token": "tok_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "workspace_id": "ws_demo",
+      "created_at": "2026-08-05T08:00:00Z"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/input-versions.schema.json",
+  "negative": [
+    {
+      "schema_version": "2.1",
+      "profile_digest": "d1",
+      "engine_version": "2.1.0-rc5",
+      "extra_disallowed": true
+    }
+  ]
+}

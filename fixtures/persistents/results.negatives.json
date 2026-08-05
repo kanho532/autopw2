@@ -1,0 +1,16 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/results.schema.json",
+  "negative": [
+    {
+      "schema_version": "2.1",
+      "run_id": "run_0123456789abcdefghij",
+      "gate": "warn",
+      "audit_status": "INCOMPLETE",
+      "exit_code": 0,
+      "results_ref": {
+        "handle": "x",
+        "kind": "y"
+      }
+    }
+  ]
+}

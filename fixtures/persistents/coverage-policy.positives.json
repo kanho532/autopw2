@@ -1,0 +1,19 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/coverage-policy.schema.json",
+  "positive": [
+    {
+      "schema_version": "2.1",
+      "mandatory_capabilities": [
+        {
+          "id": "authentication",
+          "priority": "P0",
+          "scope_mode": "always",
+          "feature_ids": [
+            "login"
+          ],
+          "on_missing": "incomplete"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/failure.schema.json",
+  "positive": [
+    {
+      "schema_version": "2.1",
+      "run_id": "run_0123456789abcdefghij",
+      "fatal_class": "STORAGE_INTEGRITY",
+      "error": {
+        "code": "DISK_WRITE_FAILED"
+      },
+      "at": "2026-08-05T08:00:00Z"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/artifact-tombstone.schema.json",
+  "negative": [
+    {
+      "handle": "art_e1",
+      "kind": "evidence.png",
+      "deleted_at": "2026-08-05T08:00:00Z"
+    }
+  ]
+}

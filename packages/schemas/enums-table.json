@@ -1,0 +1,170 @@
+{
+  "schema_version": "2.1",
+  "enums": {
+    "runPhase": [
+      "CREATED",
+      "TARGET_READY",
+      "SEED_RESOLVED",
+      "DISCOVERED",
+      "COVERAGE_DERIVED",
+      "PLAN_FILLED",
+      "PLAN_FROZEN",
+      "SUITE_GENERATED",
+      "SUITE_FROZEN",
+      "RUNNING",
+      "EXECUTION_FINISHED",
+      "RUNTIME_FINALIZED",
+      "TERMINALIZING",
+      "AUDITED",
+      "REPORTED",
+      "GATED"
+    ],
+    "runPhaseNormal": [
+      "CREATED",
+      "TARGET_READY",
+      "SEED_RESOLVED",
+      "DISCOVERED",
+      "COVERAGE_DERIVED",
+      "PLAN_FILLED",
+      "PLAN_FROZEN",
+      "SUITE_GENERATED",
+      "SUITE_FROZEN",
+      "RUNNING",
+      "EXECUTION_FINISHED",
+      "RUNTIME_FINALIZED",
+      "AUDITED",
+      "REPORTED",
+      "GATED"
+    ],
+    "runStatus": [
+      "ACTIVE",
+      "INTERRUPTED",
+      "FAILED",
+      "COMPLETED"
+    ],
+    "auditStatus": [
+      "COMPLETE",
+      "INCOMPLETE"
+    ],
+    "operationStatus": [
+      "ACCEPTED",
+      "RUNNING",
+      "COMPLETED",
+      "FAILED",
+      "CANCELLED"
+    ],
+    "gate": [
+      "incomplete",
+      "infra",
+      "fail",
+      "unstable",
+      "pass"
+    ],
+    "gatePriority": [
+      "incomplete",
+      "infra",
+      "fail",
+      "unstable",
+      "pass"
+    ],
+    "baseTier": [
+      "smoke",
+      "fast",
+      "full"
+    ],
+    "scenario": [
+      "normal",
+      "required_field",
+      "invalid_input",
+      "boundary",
+      "empty_state",
+      "service_error",
+      "network_failure"
+    ],
+    "executionStatus": [
+      "NOT_RUN",
+      "RUNNING",
+      "PASSED",
+      "FAILED",
+      "FLAKY",
+      "INTERRUPTED",
+      "BLOCKED_RESUME",
+      "INFRA_BLOCKED"
+    ],
+    "executionTerminal": [
+      "PASSED",
+      "FAILED",
+      "FLAKY"
+    ],
+    "priority": [
+      "P0",
+      "P1",
+      "P2"
+    ],
+    "issueClassification": [
+      "PRODUCT_DEFECT",
+      "TEST_DEFECT",
+      "PLAN_DEFECT",
+      "INFRA_DEFECT",
+      "FLAKY"
+    ],
+    "classificationConfidence": [
+      "HIGH",
+      "MEDIUM",
+      "LOW"
+    ],
+    "trustMode": [
+      "trusted",
+      "untrusted_pr"
+    ],
+    "lifecycleMode": [
+      "connect",
+      "manage"
+    ],
+    "gateStrategy": [
+      "product",
+      "strict"
+    ],
+    "terminalizationReason": [
+      "PLAN_DEFECT",
+      "SEED_EXHAUSTED",
+      "TEST_DEFECT_UNSAFE",
+      "INFRA_BLOCKED_GLOBAL",
+      "BUDGET_EXCEEDED",
+      "CANCEL_REQUESTED"
+    ],
+    "fatalFailureClass": [
+      "STORAGE_INTEGRITY",
+      "SCHEMA_BUNDLE_INVALID",
+      "TRUST_BOUNDARY_BROKEN",
+      "DIRECTORY_ANCHOR_LOST",
+      "STATE_CORRUPTED"
+    ],
+    "toolResultKind": [
+      "ok",
+      "error"
+    ]
+  },
+  "enum_keys": [
+    "runPhase",
+    "runPhaseNormal",
+    "runStatus",
+    "auditStatus",
+    "operationStatus",
+    "gate",
+    "gatePriority",
+    "baseTier",
+    "scenario",
+    "executionStatus",
+    "executionTerminal",
+    "priority",
+    "issueClassification",
+    "classificationConfidence",
+    "trustMode",
+    "lifecycleMode",
+    "gateStrategy",
+    "terminalizationReason",
+    "fatalFailureClass",
+    "toolResultKind"
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/issues.schema.json",
+  "negative": [
+    {
+      "schema_version": "2.1",
+      "issues": [
+        {
+          "id": "iss_1",
+          "classification": "BOGUS",
+          "confidence": "HIGH"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "schema": "https://autopw.dev/schemas/2.1/issues.schema.json",
+  "positive": [
+    {
+      "schema_version": "2.1",
+      "issues": [
+        {
+          "id": "iss_1",
+          "classification": "PRODUCT_DEFECT",
+          "confidence": "HIGH",
+          "execution_id": "EXE-0123456789abcdef",
+          "evidence_refs": [
+            "art_shot1"
+          ]
+        }
+      ]
+    }
+  ]
+}

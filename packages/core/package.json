@@ -1,0 +1,8 @@
+{
+  "name": "@autopw/core",
+  "version": "2.1.0-rc5.mcp-first",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "description": "AutoPW core (Phase 0 stub — not implemented in M0)."
+}

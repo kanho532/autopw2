@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopw.dev/schemas/2.1/issues.schema.json",
+  "title": "Classified issues",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/schemaVersion"
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "issue id"
+          },
+          "classification": {
+            "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/enum/issueClassification"
+          },
+          "confidence": {
+            "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/enum/classificationConfidence"
+          },
+          "execution_id": {
+            "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/executionId"
+          },
+          "evidence_refs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": ""
+            }
+          },
+          "untrusted_summary": {
+            "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/untrustedData"
+          }
+        },
+        "required": [
+          "id",
+          "classification",
+          "confidence"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "issues"
+  ],
+  "additionalProperties": false
+}
