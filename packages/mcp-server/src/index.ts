@@ -7,6 +7,7 @@ import { FixtureWorker } from "@autopw/worker";
 import { AuditVerticalSlice } from "@autopw/core";
 import type { FixtureVariant } from "@autopw/execution-fixture";
 import type { LeasePolicy } from "@autopw/worker";
+import type { PlannerProviderOptions } from "@autopw/planner";
 
 type JsonObject = Record<string, any>;
 
@@ -30,6 +31,7 @@ export interface McpServerOptions {
   stepMs?: number;
   fixtureVariant?: FixtureVariant;
   leasePolicy?: Partial<LeasePolicy>;
+  plannerConfig?: Partial<PlannerProviderOptions>;
   logger?: Logger;
 }
 
@@ -46,14 +48,14 @@ export class McpServer {
   readonly log: Logger;
   readonly minPollMs = 100;
 
-  constructor({ root = process.cwd(), dataRoot, hostContexts, retention, budgets, stepMs, fixtureVariant, leasePolicy, logger }: McpServerOptions = {}) {
+  constructor({ root = process.cwd(), dataRoot, hostContexts, retention, budgets, stepMs, fixtureVariant, leasePolicy, plannerConfig, logger }: McpServerOptions = {}) {
     this.root = path.resolve(root);
     this.dataRoot = path.resolve(dataRoot || path.join(this.root, ".autopw", "data"));
     this.schemasDir = path.join(this.root, "packages", "schemas", "schemas");
     this.toolsDir = path.join(this.root, "packages", "mcp-contracts", "contracts", "tools");
     this.retention = Object.assign({}, DEFAULT_RETENTION, retention || {});
     this.registry = new OperationRegistry({ dataRoot: this.dataRoot, retention: this.retention, logger });
-    this.auditRuntime = new AuditVerticalSlice({ root: this.root, dataRoot: this.dataRoot, fixtureVariant });
+    this.auditRuntime = new AuditVerticalSlice({ root: this.root, dataRoot: this.dataRoot, fixtureVariant, plannerConfig });
     this.worker = new FixtureWorker({ registry: this.registry, budgets, stepMs, logger, runtime: this.auditRuntime, leasePolicy });
     this.cp = new ControlPlane({ schemasDir: this.schemasDir, toolsDir: this.toolsDir, hostContexts, operationRegistry: this.registry, worker: this.worker, logger });
     this.log = logger || { info: () => {}, warn: () => {}, error: () => {} };

@@ -35,7 +35,7 @@ export class RunStorage {
     const lock = file + ".lock";
     let handle: number | undefined;
     try {
-      handle = fs.openSync(lock, "wx");
+      handle = this._acquireLock(lock);
       if (!fs.existsSync(file)) return undefined;
       const current = JSON.parse(fs.readFileSync(file, "utf8")) as T;
       if (current.lease?.state_version !== expectedVersion) return undefined;
@@ -49,6 +49,36 @@ export class RunStorage {
       if (handle !== undefined) fs.closeSync(handle);
       if (handle !== undefined) { try { fs.rmSync(lock, { force: true }); } catch { /* best effort lock cleanup */ } }
     }
+  }
+
+  private _acquireLock(lock: string): number | undefined {
+    try {
+      const handle = fs.openSync(lock, "wx");
+      fs.writeFileSync(handle, JSON.stringify({ pid: process.pid, created_at: Date.now() }), "utf8");
+      return handle;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      try {
+        const stat = fs.statSync(lock);
+        const metadata = JSON.parse(fs.readFileSync(lock, "utf8") || "{}") as { pid?: number; created_at?: number };
+        const age = Date.now() - (metadata.created_at || stat.mtimeMs);
+        const ownerAlive = typeof metadata.pid === "number" && this._processAlive(metadata.pid);
+        if (age > 60_000 && !ownerAlive) {
+          fs.rmSync(lock, { force: true });
+          const handle = fs.openSync(lock, "wx");
+          fs.writeFileSync(handle, JSON.stringify({ pid: process.pid, created_at: Date.now() }), "utf8");
+          return handle;
+        }
+      } catch (lockError) {
+        if ((lockError as NodeJS.ErrnoException).code !== "ENOENT") return undefined;
+      }
+      return undefined;
+    }
+  }
+
+  private _processAlive(pid: number): boolean {
+    if (pid === process.pid) return true;
+    try { process.kill(pid, 0); return true; } catch { return false; }
   }
 
   writeFile(runId: string, name: string, data: Buffer | string): void {

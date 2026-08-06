@@ -218,7 +218,7 @@ export class FixtureWorker {
         const result: VerticalResult = await this.runtime.execute({
           run,
           request,
-          onPhase: (phase, progress, nextAction) => { if (run.cancel_requested) return; run.phase = phase; run.progress_pct = progress; run.next_action = nextAction; this._persistRun(run, phase === "GATED" ? "COMPLETED" : "RUNNING"); }
+          onPhase: (phase, progress, nextAction) => { if (run.cancel_requested || this.crashedRuns.has(run.run_id)) return; run.phase = phase; run.progress_pct = progress; run.next_action = nextAction; this._persistRun(run, phase === "GATED" ? "COMPLETED" : "RUNNING"); }
         });
         if (this.crashedRuns.has(run.run_id)) return;
         if (run.cancel_requested) return;
@@ -338,7 +338,7 @@ export class FixtureWorker {
   private _writeRunState(run: RunState): void { if (this.runtime) this.runtime.storage.writeJson(run.run_id, "run_state.json", run); }
 
   private _prepareResume(run: RunState): boolean {
-    if (run.resume_attempts >= 3) { this._finalizePlanDefect(run, "MAX_RESUME_ATTEMPTS"); return false; }
+    if (run.resume_attempts >= 3) { this._finalizeResumeExhausted(run); return false; }
     const now = Date.now();
     const alive = run.lease.owner ? ACTIVE_WORKER_IDS.has(run.lease.owner) : false;
     const observedVersion = run.lease.state_version;
@@ -389,6 +389,16 @@ export class FixtureWorker {
     for (const phase of ["RUNTIME_FINALIZED", "AUDITED", "REPORTED", "GATED"] as const) {
       run.phase = phase; if (phase === "AUDITED") run.audit_status = "INCOMPLETE";
       if (phase === "GATED") { run.run_status = "COMPLETED"; run.gate = "incomplete"; run.gate_summary = { reason: "planner defect", message }; run.next_action = "get_run_result"; }
+      this._persistRun(run, phase === "GATED" ? "COMPLETED" : "RUNNING");
+    }
+  }
+
+  private _finalizeResumeExhausted(run: RunState): void {
+    if (run.phase !== "TERMINALIZING" && run.phase !== "GATED") { run.phase = "TERMINALIZING"; run.next_action = "resume attempts exhausted"; this._persistRun(run, "RUNNING"); }
+    for (const phase of ["RUNTIME_FINALIZED", "AUDITED", "REPORTED", "GATED"] as const) {
+      run.phase = phase;
+      if (phase === "AUDITED") run.audit_status = "INCOMPLETE";
+      if (phase === "GATED") { run.run_status = "COMPLETED"; run.gate = "incomplete"; run.gate_summary = { reason: "resume attempts exhausted", code: "MAX_RESUME_ATTEMPTS" }; run.next_action = "get_run_result"; }
       this._persistRun(run, phase === "GATED" ? "COMPLETED" : "RUNNING");
     }
   }

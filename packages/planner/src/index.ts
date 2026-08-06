@@ -92,6 +92,8 @@ export function validatePlannerOutput(input: PlannerInput, output: PlannerOutput
       if (expectation?.strength === "weak") errors.push(selection.caseId + ": weak validation");
       if (expectation?.origin && allowedOrigin && expectation.origin !== allowedOrigin) errors.push(selection.caseId + ": expectation origin not allowed");
     }
+    if (skeleton.action_ids) { const selectedActions = selection.actionSelections.map((action) => action.actionTemplateId); if (new Set(selectedActions).size !== new Set(skeleton.action_ids).size || skeleton.action_ids.some((id) => !selectedActions.includes(id))) errors.push(selection.caseId + ": coverage binding does not include all action candidates"); }
+    if (skeleton.expectation_ids) { const selectedExpectations = selection.expectationIds || []; if (new Set(selectedExpectations).size !== new Set(skeleton.expectation_ids).size || skeleton.expectation_ids.some((id) => !selectedExpectations.includes(id))) errors.push(selection.caseId + ": coverage binding does not include all expectations"); }
     if (skeleton.scenario === "normal" && !(selection.expectationIds || []).some((id) => input.candidates.expectations[id]?.strength === "strong")) errors.push(selection.caseId + ": normal scenario lacks strong result assertion");
   }
   for (const observation of input.untrustedObservations || []) {

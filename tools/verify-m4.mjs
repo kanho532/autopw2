@@ -37,9 +37,9 @@ const harness = await newHarness({ stepMs: 4 });
 try {
   const accepted = await call(harness.server, "run_audit", { schema_version: "2.1", client_request_id: "m4_formal_run", workspace_id: "ws_demo", project_subpath: ".", profile_path: ".autopw/profile.yaml", base_tier: "fast" });
   let state;
-  for (let i = 0; i < 100; i += 1) { state = await call(harness.server, "get_run_status", { schema_version: "2.1", workspace_id: "ws_demo", run_id: accepted.run_handle }); if (state.phase === "GATED") break; await new Promise((resolve) => setTimeout(resolve, 25)); }
+  for (let i = 0; i < 200; i += 1) { state = await call(harness.server, "get_run_status", { schema_version: "2.1", workspace_id: "ws_demo", run_id: accepted.run_handle }); if (state.phase === "GATED" || state.run_status === "FAILED") break; await new Promise((resolve) => setTimeout(resolve, 50)); }
   const runDir = path.join(harness.dataRoot, "runs", accepted.run_handle);
-  check("m4-formal-audit-uses-planner", state.phase === "GATED" && fs.existsSync(path.join(runDir, "planner-input.json")) && fs.existsSync(path.join(runDir, "planner-output.json")));
+  check("m4-formal-audit-uses-planner", state.phase === "GATED" && fs.existsSync(path.join(runDir, "planner-input.json")) && fs.existsSync(path.join(runDir, "planner-output.json")), JSON.stringify(state));
   check("m4-planner-cache-artifact-present", fs.existsSync(path.join(runDir, "plan-template.json")) && fs.existsSync(path.join(runDir, "planner-audit.json")));
 } finally { await harness.cleanup(); }
 

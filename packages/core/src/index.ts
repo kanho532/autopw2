@@ -22,12 +22,14 @@ export class AuditVerticalSlice {
   readonly storage: RunStorage;
   readonly runner = new PlaywrightFixtureRunner();
   readonly fixtureVariant?: FixtureVariant;
+  readonly plannerConfig: Partial<PlannerProviderOptions>;
   readonly preflightCache = new Map<string, { expires_at: number; value: CoveragePreview }>();
 
-  constructor({ root, dataRoot, fixtureVariant }: { root: string; dataRoot: string; fixtureVariant?: FixtureVariant }) {
+  constructor({ root, dataRoot, fixtureVariant, plannerConfig }: { root: string; dataRoot: string; fixtureVariant?: FixtureVariant; plannerConfig?: Partial<PlannerProviderOptions> }) {
     this.root = path.resolve(root);
     this.storage = new RunStorage(dataRoot);
     this.fixtureVariant = fixtureVariant;
+    this.plannerConfig = plannerConfig || {};
   }
 
   async execute({ run, request, onPhase }: { run: VerticalRun; request: Record<string, unknown>; onPhase: PhaseCallback }): Promise<VerticalResult> {
@@ -55,7 +57,7 @@ export class AuditVerticalSlice {
       this.storage.writeJson(run.run_id, "plan-template.json", { cache_key: planner.template.cache_key, selections_digest: planner.template.selections_digest, planner_provider_id: planner.template.planner_provider_id, model_id: planner.template.model_id });
       this.storage.writeJson(run.run_id, "planner-audit.json", planner.audit);
       commitPhase("PLAN_FILLED", 36, "poll get_run_status");
-      const compiled = compileFixturePlan(FIXTURE_PLAN);
+      const compiled = compileFixturePlan(materializeFixturePlan(FIXTURE_PLAN, planner.output));
       this.storage.writeJson(run.run_id, "plan.json", compiled.plan);
       this.storage.writeJson(run.run_id, "mapping-audit.json", compiled.mappingAudit);
       commitPhase("PLAN_FROZEN", 42, "poll get_run_status");
@@ -154,7 +156,7 @@ export class AuditVerticalSlice {
       schemaVersion: "2.1", skeletons, candidates, contractRefs: [{ contractId: "fixture-plan", version: "2.1", ref: "fixture://plan" }],
       untrustedObservations: Object.entries(coverage.discovery).slice(0, 24).map(([kind, value], index) => ({ observationId: "obs_" + index, untrusted: true as const, kind, value: JSON.stringify(value).slice(0, 400) }))
     };
-    const options: PlannerProviderOptions = { provider_id: "local-structured", provider_version: "1", model_id: String(request.model_id || "local-deterministic"), timeout_ms: Math.max(100, Number(request.planner_timeout_ms || 2000)), token_budget: Math.max(64, Number(request.planner_token_budget || 2048)), temperature: 0, max_attempts: 2 };
+    const options: PlannerProviderOptions = { provider_id: "local-structured", provider_version: "1", model_id: "local-deterministic", timeout_ms: 2000, token_budget: 2048, temperature: 0, max_attempts: 2, ...this.plannerConfig };
     const cache = new PlanTemplateCache(path.join(this.storage.dataRoot, "plan-cache"));
     const key = cache.key({ normalized_profile_digest: digest(String(request.profile_path || "default")), coverage_policy_digest: digest(JSON.stringify(request.coverage_policy || {})), scenario_contract_digest: digest("fixture-scenarios-v2"), route_map_digest: digest("fixture-route-map"), discovery_digest: plannerInputDigest(input), engine_version: "2.1", schema_version: "2.1", planner_provider_id: options.provider_id, planner_provider_version: options.provider_version, model_id: options.model_id, base_tier: String(request.tier || request.base_tier || "fast"), sorted_scope: skeletons.map((item) => item.case_id).sort(), locale: String(request.locale || "en-US"), auth_scope_id: String(request.auth_scope_id || "as_demo"), run_id: request.run_id, seed: request.seed });
     const cached = cache.get(key);
@@ -162,7 +164,7 @@ export class AuditVerticalSlice {
     let attempts = 0;
     if (cached) { output = cached.selections; attempts = 0; }
     else {
-      const provider = request.planner_provider === "fixture" ? new DeterministicFixturePlanner() : new LocalStructuredPlannerProvider();
+      const provider = options.provider_id === "fixture-deterministic" ? new DeterministicFixturePlanner() : new LocalStructuredPlannerProvider();
       let lastError: unknown;
       for (let attempt = 1; attempt <= (options.max_attempts || 2); attempt += 1) {
         attempts = attempt;
@@ -197,6 +199,15 @@ function fixtureCandidates(origin: string): CandidateCatalog {
     const expectationId = "exp_" + item.case_id; expectations[expectationId] = { id: expectationId, kind: "expectation", case_id: item.case_id, scenario: item.scenario, route_id: routeId, origin, strength: "strong", source: "fixture" };
   }
   return { routes, actions, locators, inputs, expectations, endpoints };
+}
+
+function materializeFixturePlan(basePlan: typeof FIXTURE_PLAN, output: PlannerOutput): typeof FIXTURE_PLAN {
+  const selections = new Map(output.caseSelections.map((selection) => [selection.caseId, selection]));
+  return { ...basePlan, cases: basePlan.cases.filter((item) => selections.has(item.case_id)).map((item) => {
+    const selection = selections.get(item.case_id);
+    const selectedIndexes = new Set((selection?.actionSelections || []).map((action) => Number(action.actionTemplateId.match(/_(\d+)$/)?.[1])).filter((index) => Number.isInteger(index)));
+    return { ...item, steps: item.steps.filter((_step, index) => selectedIndexes.has(index)) };
+  }) };
 }
 
 function stableJson(value: unknown): string {
