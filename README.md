@@ -2,7 +2,7 @@
 
 AutoPW is a Profile-driven Web quality audit engine delivered as a Codex local MCP plugin. The MCP Server is the sole primary public entry; the maintenance CLI and internal Core API are not the audit path.
 
-This repository has completed **M6 (MCP Security Boundaries)**. M0 freezes the public contracts; M1 provides the durable MCP Control Plane; M2 runs a deterministic Chromium audit through MCP; M3 adds bounded Discovery, Diff/Derivation, CDD Preview and honest full-matrix projections; M4 adds candidate-only Planner integration and template caching; M5 adds persisted Lease/heartbeat state, safe recovery, cancellation and idempotent cleanup; M6 adds host-owned trust resolution, untrusted-PR restrictions, path/origin/adapter boundaries, production read-only enforcement and evidence/report redaction.
+This repository has completed **M8 (release hardening)**. M0 freezes the public contracts; M1 provides the durable MCP Control Plane; M2 runs a deterministic Chromium audit through MCP; M3 adds bounded Discovery, Diff/Derivation, CDD Preview and honest full-matrix projections; M4 adds candidate-only Planner integration and template caching; M5 adds persisted Lease/heartbeat state, safe recovery, cancellation and idempotent cleanup; M6 adds host-owned trust resolution, untrusted-PR restrictions, path/origin/adapter boundaries, production read-only enforcement and evidence/report redaction; M7 adds agent workflow observability and maintenance tooling; M8 adds multi-browser execution, release compatibility, performance, fault, retention and bounded soak gates.
 
 ## Development language
 
@@ -17,6 +17,9 @@ npm run verify:m2
 npm run verify:m3
 npm run verify:m4
 npm run verify:m5
+npm run verify:m6
+npm run verify:m7
+npm run verify:v2.1
 ```
 `verify:m6` includes the M1–M6 acceptance gates. M2–M6 install and use the pinned Playwright Chromium fixture where the vertical slice requires it.
 

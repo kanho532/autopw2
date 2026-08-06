@@ -21,6 +21,12 @@ const PAGINATION = () => ({ type: "object", properties: {
   total_items: { type: "integer", minimum: 0 }, total_pages: { type: "integer", minimum: 0 },
   has_more: { type: "boolean" }, next_page: { type: ["integer", "null"], minimum: 1 }
 }, required: ["page", "page_size", "total_items", "total_pages", "has_more", "next_page"], additionalProperties: false });
+const MATRIX = () => ({ type: "object", properties: {
+  browsers: { type: "array", minItems: 1, maxItems: 3, items: { type: "string", enum: ["chromium", "firefox", "webkit"] } },
+  viewports: { type: "array", minItems: 1, maxItems: 8, items: { type: "object", properties: { width: { type: "integer", minimum: 320, maximum: 4096 }, height: { type: "integer", minimum: 240, maximum: 4096 } }, required: ["width", "height"], additionalProperties: false } },
+  locales: { type: "array", minItems: 1, maxItems: 16, items: { type: "string", minLength: 2, maxLength: 32 } },
+  auth_scope_ids: { type: "array", minItems: 1, maxItems: 8, items: { type: "string", minLength: 1, maxLength: 128 } }
+}, additionalProperties: false });
 
 function inputSchema(name, desc, props, required) {
   return {
@@ -77,6 +83,7 @@ export function buildToolContracts() {
       project_subpath: { $ref: ref.def("projectSubpath") },
       profile_path: str("relative profile path"), base_tier: enumRef("baseTier"),
       matrix_budget: { type: "object", properties: { max_execution_instances: { type: "integer", minimum: LIMITS.matrixBudgetMaxExecutionInstances.min } }, additionalProperties: false },
+      matrix: MATRIX(),
       auth_scope_id: str("approved auth scope id reference"), lifecycle: enumRef("lifecycleMode")
     }, ["schema_version", "client_request_id", "workspace_id", "profile_path", "base_tier"]),
     [acceptedResult({ run_handle: RID() }), ERROR()],

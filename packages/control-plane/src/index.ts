@@ -81,6 +81,9 @@ export class ControlPlane {
     if (!fs.existsSync(projectPath)) return { ok: false, error: mkErr("PROJECT_SUBPATH_NOT_FOUND", "project_subpath does not exist") };
     if (!fs.statSync(projectPath).isDirectory()) return { ok: false, error: mkErr("PROJECT_SUBPATH_NOT_DIRECTORY", "project_subpath is not a directory") };
     if (request.auth_scope_id && request.auth_scope_id !== hostContext.auth_scope.auth_scope_id) return { ok: false, error: mkErr("AUTH_SCOPE_NOT_APPROVED", "auth_scope_id not approved by host") };
+    const matrix = isRecord(request.matrix) ? request.matrix : undefined;
+    const matrixScopes = matrix && Array.isArray(matrix.auth_scope_ids) ? matrix.auth_scope_ids : [];
+    if (matrixScopes.some((scope) => scope !== hostContext.auth_scope.auth_scope_id)) return { ok: false, error: mkErr("AUTH_SCOPE_NOT_APPROVED", "matrix auth scope is not approved by host") };
     return { ok: true, hostContext, tool, securitySnapshot };
   }
 

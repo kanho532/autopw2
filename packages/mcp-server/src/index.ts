@@ -3,13 +3,14 @@ import path from "node:path";
 import { OperationRegistry } from "@autopw/operation-registry";
 import type { Logger, RetentionPolicy } from "@autopw/operation-registry";
 import { ControlPlane } from "@autopw/control-plane";
-import { FixtureWorker } from "@autopw/worker";
+import { FixtureWorker, WORKER_PROTOCOL_VERSION } from "@autopw/worker";
 import { AuditVerticalSlice } from "@autopw/core";
 import type { FixtureVariant } from "@autopw/execution-fixture";
 import type { LeasePolicy, ProgressNotification } from "@autopw/worker";
 import type { PlannerProviderOptions } from "@autopw/planner";
 
 type JsonObject = Record<string, any>;
+export const MCP_PROTOCOL_VERSION = "2.1";
 
 const DEFAULT_RETENTION: RetentionPolicy = {
   operation_ttl_ms: 86_400_000,
@@ -35,6 +36,8 @@ export interface McpServerOptions {
   production?: boolean;
   logger?: Logger;
   progressSink?: (event: ProgressNotification) => void;
+  /** Optional explicit worker version used by deployments during rolling upgrades. */
+  workerProtocolVersion?: string;
 }
 
 export class McpServer {
@@ -51,7 +54,11 @@ export class McpServer {
   readonly progressListeners = new Set<(event: ProgressNotification) => void>();
   readonly minPollMs = 100;
 
-  constructor({ root = process.cwd(), dataRoot, hostContexts, retention, budgets, stepMs, fixtureVariant, leasePolicy, plannerConfig, production, logger, progressSink }: McpServerOptions = {}) {
+  constructor({ root = process.cwd(), dataRoot, hostContexts, retention, budgets, stepMs, fixtureVariant, leasePolicy, plannerConfig, production, logger, progressSink, workerProtocolVersion = WORKER_PROTOCOL_VERSION }: McpServerOptions = {}) {
+    if (workerProtocolVersion !== MCP_PROTOCOL_VERSION) {
+      const error = Object.assign(new Error(`worker protocol ${workerProtocolVersion} is incompatible with server protocol ${MCP_PROTOCOL_VERSION}`), { code: "PROTOCOL_VERSION_MISMATCH" });
+      throw error;
+    }
     this.root = path.resolve(root);
     this.dataRoot = path.resolve(dataRoot || path.join(this.root, ".autopw", "data"));
     this.schemasDir = path.join(this.root, "packages", "schemas", "schemas");
@@ -75,7 +82,11 @@ export class McpServer {
   }
   registerHostContext(workspace_id: string, ctx: { mcp_host_context: JsonObject }): void { this.cp.registerHostContext(workspace_id, ctx); }
   subscribeProgress(listener: (event: ProgressNotification) => void): () => void { this.progressListeners.add(listener); return () => this.progressListeners.delete(listener); }
-  serverInfo(): JsonObject { return this.cp.serverInfo(); }
+  serverInfo(): JsonObject {
+    const info = this.cp.serverInfo();
+    if (info.server_info) Object.assign(info.server_info, { protocol_version: MCP_PROTOCOL_VERSION, worker_protocol_version: WORKER_PROTOCOL_VERSION });
+    return info;
+  }
   async callTool(name: string, request: JsonObject): Promise<JsonObject> {
     const startedAt = Date.now();
     const output = await this.cp.handle(name, request);

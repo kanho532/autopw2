@@ -2,7 +2,7 @@ import path from "node:path";
 import { auditExecution } from "@autopw/audit";
 import { compileFixturePlan, suiteDigest } from "@autopw/compiler";
 import { FIXTURE_PLAN, startDemoTarget, type FixtureVariant } from "@autopw/execution-fixture";
-import { PlaywrightFixtureRunner } from "@autopw/execution";
+import { PlaywrightFixtureRunner, type ExecutionMatrix } from "@autopw/execution";
 import { evaluateGate } from "@autopw/gate";
 import { writeReport } from "@autopw/reporting";
 import { RunStorage, type ArtifactRef } from "@autopw/run-storage";
@@ -70,9 +70,9 @@ export class AuditVerticalSlice {
       this.storage.writeJson(run.run_id, "suite-manifest.json", { digest: suiteDigest(compiled.source), forbidden_imports: false });
       commitPhase("SUITE_FROZEN", 54, "poll get_run_status");
       commitPhase("RUNNING", 60, "poll get_run_status");
-      const execution = await this.runner.run({ runId: run.run_id, baseUrl: target.baseUrl, allowedOrigins: this.resolvedAllowedOrigins(request), plan: compiled.plan, variant, storage: this.storage });
+      const execution = await this.runner.run({ runId: run.run_id, baseUrl: target.baseUrl, allowedOrigins: this.resolvedAllowedOrigins(request), plan: compiled.plan, variant, matrix: matrixFromRequest(request), tier: String(request.tier || request.base_tier || "fast") as "smoke" | "fast" | "full", storage: this.storage });
       commitPhase("EXECUTION_FINISHED", 78, "poll get_run_status");
-      const audit = auditExecution(compiled.plan.cases.map((item) => item.case_id), execution.results);
+      const audit = auditExecution(compiled.plan.cases.map((item) => item.case_id), execution.results, execution.manifest);
       this.storage.writeJson(run.run_id, "completion-audit.json", audit);
       this.storage.writeJson(run.run_id, "issues.json", { schema_version: "2.1", issues: audit.issues });
       commitPhase("RUNTIME_FINALIZED", 84, "poll get_run_status");
@@ -124,7 +124,7 @@ export class AuditVerticalSlice {
     const matrixBudget = typeof request.matrix_budget === "object" && request.matrix_budget ? Number((request.matrix_budget as Record<string, unknown>).max_execution_instances || 0) : 0;
     const derivation = deriveCoverage({
       discovery, tier, diff,
-      matrix: { profile_max_execution_instances: matrixBudget || undefined, host_max_execution_instances: Number(request.__host_max_execution_instances || 100) },
+      matrix: { ...matrixFromRequest(request), profile_max_execution_instances: matrixBudget || undefined, host_max_execution_instances: Number(request.__host_max_execution_instances || 100) },
       input_versions: {
         workspace_digest: digest(this.root), profile_digest: digest(String(request.profile_path || "")),
         route_map_digest: digest("default-route-map"), diff_digest: digest(String(request.diff_ref || "NOOP")),
@@ -230,3 +230,15 @@ function stableJson(value: unknown): string {
   return JSON.stringify(value);
 }
 function isRecord(value: unknown): value is Record<string, unknown> { return Boolean(value) && typeof value === "object" && !Array.isArray(value); }
+function matrixFromRequest(request: Record<string, unknown>): ExecutionMatrix | undefined {
+  const value = isRecord(request.matrix) ? request.matrix : undefined;
+  const tier = String(request.tier || request.base_tier || "fast");
+  if (!value && tier !== "full") return undefined;
+  const matrix = value || { browsers: ["chromium", "firefox", "webkit"], viewports: [{ width: 1280, height: 720 }, { width: 1440, height: 900 }], locales: ["en-US"], auth_scope_ids: ["as_demo"] };
+  return {
+    browsers: Array.isArray(matrix.browsers) ? matrix.browsers as ExecutionMatrix["browsers"] : undefined,
+    viewports: Array.isArray(matrix.viewports) ? matrix.viewports as ExecutionMatrix["viewports"] : undefined,
+    locales: Array.isArray(matrix.locales) ? matrix.locales.filter((item): item is string => typeof item === "string") : undefined,
+    auth_scope_ids: Array.isArray(matrix.auth_scope_ids) ? matrix.auth_scope_ids.filter((item): item is string => typeof item === "string") : undefined
+  };
+}

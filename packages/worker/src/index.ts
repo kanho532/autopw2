@@ -9,6 +9,9 @@ import type { AuditVerticalSlice, CoveragePreview, VerticalResult } from "@autop
 import { DEFAULT_LEASE_POLICY, isLeaseStale, newLease, observeLease, releaseLease, takeoverLease, type LeasePolicy, type RunLease } from "./lease.js";
 export type { LeasePolicy, RunLease } from "./lease.js";
 
+/** Protocol version shared by the MCP server and its durable worker. */
+export const WORKER_PROTOCOL_VERSION = "2.1";
+
 const RUN_PREFIX = "run_";
 const PHASE_PATH = [
   "CREATED", "TARGET_READY", "SEED_RESOLVED", "DISCOVERED", "COVERAGE_DERIVED",
