@@ -8,6 +8,14 @@
 
 ---
 
+## 开发语言与实现约定
+
+AutoPW 的主要实现语言统一为 **TypeScript**。后续新增或修改核心运行时代码时，默认使用严格 TypeScript（`.ts`），并通过仓库的类型检查与 lint 检查。
+
+适用范围包括 MCP Server、Control Plane、Operation Registry、Durable Worker、Host Harness 以及 Core、Discovery、Derivation、Planner、Compiler、Execution、Audit、Reporting 和 Gate 等模块。
+
+`.mjs` 仅用于生成器、验证器和必要的兼容性入口。当前 M1 中已有的 `.mjs` 运行时代码视为过渡实现；后续不得继续扩大 `.mjs` 核心实现范围，应逐步迁移到 TypeScript，并由构建产物作为运行入口。若必须保留 `.mjs`，需要在变更说明中记录原因、边界和迁移计划。
+
 ## 一、实施定位
 
 ### 1.1 MCP 是主产品，不是包装层

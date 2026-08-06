@@ -10,6 +10,6 @@
     "./types": "./src/types/index.ts"
   },
   "scripts": {
-    "generate": "node ../../tools/gen-schemas.mjs && node ../../tools/gen-types.mjs"
+    "generate": "node ../../tools/gen-m0.mjs && node ../../tools/gen-types.mjs"
   }
 }

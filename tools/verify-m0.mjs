@@ -63,7 +63,7 @@ addFormats(ajv);
 const commonSchema = buildCommonSchema();
 ajv.addSchema(commonSchema, commonSchema.$id);
 const S = buildSchemas();
-for (const [name, schema] of Object.entries(S)) ajv.addSchema(schema, schema.$id);
+for (const schema of Object.values(S)) ajv.addSchema(schema, schema.$id);
 
 // helper: compile a standalone subschema (strip $id with fragment if present)
 function compileSub(schema) {
@@ -75,7 +75,7 @@ function compileSub(schema) {
 // ---- Check 3: all Schema references resolvable ----
 let refsOK = true; const refErrors = [];
 try {
-  for (const [name, schema] of Object.entries(S)) { ajv.getSchema(schema.$id); }
+  for (const schema of Object.values(S)) { ajv.getSchema(schema.$id); }
   // compile each tool input + result variants to exercise $refs
   const T = buildToolContracts();
   for (const tname of TOOL_NAMES) {

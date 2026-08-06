@@ -1,7 +1,7 @@
 // Fixed state machine: phases, explicit transition table, run/run-state contracts
 // and the gate priority + P0 coverage formula. Single-sourced enums come from
 // enums.mjs; verify:m0 check #8 walks this table to ensure no undefined transition.
-import { RUN_PHASE, RUN_PHASE_NORMAL, GATE_PRIORITY, AUDIT_STATUS } from "./enums.mjs";
+import { RUN_PHASE_NORMAL, GATE_PRIORITY, AUDIT_STATUS } from "./enums.mjs";
 
 export const NORMAL_PATH = Object.freeze([...RUN_PHASE_NORMAL]);
 

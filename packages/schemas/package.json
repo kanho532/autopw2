@@ -10,6 +10,6 @@
     "./schemas/*": "./schemas/*.json"
   },
   "scripts": {
-    "generate": "node ../../tools/gen-schemas.mjs"
+    "generate": "node ../../tools/gen-m0.mjs"
   }
 }

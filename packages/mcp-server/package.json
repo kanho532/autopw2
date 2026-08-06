@@ -1,11 +1,9 @@
 {
-  "name": "@autopw/mcp-host-harness",
+  "name": "@autopw/mcp-server",
   "version": "2.1.0-rc5.mcp-first",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "scripts": {
-    "check": "tsc --noEmit"
-  }
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } }
 }

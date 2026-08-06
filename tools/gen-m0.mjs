@@ -2,7 +2,7 @@
 // (schemas bundle, tool contracts, host-context contract, fixtures, manifests).
 import fs from "node:fs";
 import path from "node:path";
-import { buildCommonSchema, buildCommonDefs, ref } from "../packages/schemas/src/common.mjs";
+import { buildCommonSchema, ref } from "../packages/schemas/src/common.mjs";
 import { buildSchemas } from "../packages/schemas/src/schemas.mjs";
 import { buildToolContracts, TOOL_NAMES } from "../packages/mcp-contracts/src/tools.mjs";
 import { HOST_CONTEXT_CONTRACT } from "../packages/mcp-contracts/src/host-context.mjs";

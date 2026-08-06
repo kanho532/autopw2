@@ -3,6 +3,8 @@
   "version": "2.1.0-rc5.mcp-first",
   "private": true,
   "type": "module",
-  "main": "src/index.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
   "description": "AutoPW operation-registry (Phase 0 stub — not implemented in M0)."
 }

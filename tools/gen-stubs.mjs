@@ -1,7 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
 const root = path.resolve(import.meta.dirname.replace(/\\/g,"/").replace(/\/tools$/,""));
-const noBom = new TextEncoder();
 function wj(p, o){ fs.writeFileSync(p, JSON.stringify(o, null, 2) + "\n"); }
 const stubs = [
  "control-plane","worker","core","run-storage","operation-registry","discovery",

@@ -1,7 +1,6 @@
 // Persistent JSON Schema bundle definitions. Draft 2020-12, unique $id each,
 // identifiers/enums resolved through common.schema.json $defs (single-sourced).
 import { ref } from "./common.mjs";
-import { ENUMS } from "./enums.mjs";
 import { LIMITS } from "./limits.mjs";
 const DRAFT = "https://json-schema.org/draft/2020-12/schema";
 function obj(name, title, props, required, extra) {
