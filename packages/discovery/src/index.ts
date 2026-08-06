@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
+import { BrowserNetworkGuard } from "@autopw/security";
 
 export interface DiscoveryBudget {
   max_depth?: number;
@@ -109,7 +110,10 @@ export function resolveProjectRoot(root: string, projectSubpath: string): string
 async function discoverTarget(targetUrl: string, timeoutMs: number, allowedOrigins: string[]): Promise<{ observations: Record<string, unknown>[]; candidates: DiscoveryCandidate[]; scenario_observations: ScenarioObservation[] }> {
   const url = new URL(targetUrl);
   if (allowedOrigins.length > 0 && !allowedOrigins.includes(url.origin)) throw new Error("DISCOVERY_ORIGIN_NOT_ALLOWED");
-  const response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+  const network = new BrowserNetworkGuard(allowedOrigins.length > 0 ? allowedOrigins : [url.origin]);
+  network.assertAllowed(url.toString());
+  const response = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(timeoutMs) });
+  if ([301, 302, 303, 307, 308].includes(response.status)) throw new Error("DISCOVERY_REDIRECT_NOT_ALLOWED");
   if (!response.ok) throw new Error("DISCOVERY_TARGET_HTTP_" + response.status);
   const body = (await response.text()).slice(0, 100_000);
   const controls = [...body.matchAll(/\bid=["']([A-Za-z0-9_.:-]+)["']/g)].map((match) => match[1]);

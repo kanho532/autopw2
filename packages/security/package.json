@@ -3,6 +3,8 @@
   "version": "2.1.0-rc5.mcp-first",
   "private": true,
   "type": "module",
-  "main": "src/index.ts",
-  "description": "AutoPW security (Phase 0 stub — not implemented in M0)."
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "description": "AutoPW M6 security policy, trust and sandbox boundary."
 }

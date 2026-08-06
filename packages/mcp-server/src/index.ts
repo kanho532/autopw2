@@ -32,6 +32,7 @@ export interface McpServerOptions {
   fixtureVariant?: FixtureVariant;
   leasePolicy?: Partial<LeasePolicy>;
   plannerConfig?: Partial<PlannerProviderOptions>;
+  production?: boolean;
   logger?: Logger;
 }
 
@@ -48,14 +49,14 @@ export class McpServer {
   readonly log: Logger;
   readonly minPollMs = 100;
 
-  constructor({ root = process.cwd(), dataRoot, hostContexts, retention, budgets, stepMs, fixtureVariant, leasePolicy, plannerConfig, logger }: McpServerOptions = {}) {
+  constructor({ root = process.cwd(), dataRoot, hostContexts, retention, budgets, stepMs, fixtureVariant, leasePolicy, plannerConfig, production, logger }: McpServerOptions = {}) {
     this.root = path.resolve(root);
     this.dataRoot = path.resolve(dataRoot || path.join(this.root, ".autopw", "data"));
     this.schemasDir = path.join(this.root, "packages", "schemas", "schemas");
     this.toolsDir = path.join(this.root, "packages", "mcp-contracts", "contracts", "tools");
     this.retention = Object.assign({}, DEFAULT_RETENTION, retention || {});
     this.registry = new OperationRegistry({ dataRoot: this.dataRoot, retention: this.retention, logger });
-    this.auditRuntime = new AuditVerticalSlice({ root: this.root, dataRoot: this.dataRoot, fixtureVariant, plannerConfig });
+    this.auditRuntime = new AuditVerticalSlice({ root: this.root, dataRoot: this.dataRoot, fixtureVariant, plannerConfig, production });
     this.worker = new FixtureWorker({ registry: this.registry, budgets, stepMs, logger, runtime: this.auditRuntime, leasePolicy });
     this.cp = new ControlPlane({ schemasDir: this.schemasDir, toolsDir: this.toolsDir, hostContexts, operationRegistry: this.registry, worker: this.worker, logger });
     this.log = logger || { info: () => {}, warn: () => {}, error: () => {} };

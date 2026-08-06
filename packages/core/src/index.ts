@@ -10,6 +10,7 @@ import type { RunSnapshot } from "@autopw/operation-registry";
 import { discover } from "@autopw/discovery";
 import { analyzeDiff, deriveCoverage, digest, type DerivationResult, type DiffResult, type Tier } from "@autopw/derivation";
 import { DeterministicFixturePlanner, LocalStructuredPlannerProvider, PlanTemplateCache, plannerInputDigest, validatePlannerOutput, type CandidateCatalog, type PlannerInput, type PlannerOutput, type PlannerProviderOptions, type PlanTemplate } from "@autopw/planner";
+import { redactSecrets } from "@autopw/security";
 
 export interface VerticalRun extends RunSnapshot { phase: string; }
 export interface VerticalResult { gate: "incomplete" | "infra" | "fail" | "unstable" | "pass"; audit_status: "COMPLETE" | "INCOMPLETE"; results_ref: ArtifactRef; report_ref: ArtifactRef; gate_summary: Record<string, unknown>; cases: Record<string, unknown>[]; evidence_refs: ArtifactRef[]; }
@@ -23,13 +24,15 @@ export class AuditVerticalSlice {
   readonly runner = new PlaywrightFixtureRunner();
   readonly fixtureVariant?: FixtureVariant;
   readonly plannerConfig: Partial<PlannerProviderOptions>;
+  readonly production: boolean;
   readonly preflightCache = new Map<string, { expires_at: number; value: CoveragePreview }>();
 
-  constructor({ root, dataRoot, fixtureVariant, plannerConfig }: { root: string; dataRoot: string; fixtureVariant?: FixtureVariant; plannerConfig?: Partial<PlannerProviderOptions> }) {
+  constructor({ root, dataRoot, fixtureVariant, plannerConfig, production }: { root: string; dataRoot: string; fixtureVariant?: FixtureVariant; plannerConfig?: Partial<PlannerProviderOptions>; production?: boolean }) {
     this.root = path.resolve(root);
     this.storage = new RunStorage(dataRoot);
     this.fixtureVariant = fixtureVariant;
     this.plannerConfig = plannerConfig || {};
+    this.production = Boolean(production);
   }
 
   async execute({ run, request, onPhase }: { run: VerticalRun; request: Record<string, unknown>; onPhase: PhaseCallback }): Promise<VerticalResult> {
@@ -37,8 +40,9 @@ export class AuditVerticalSlice {
     const startedAt = new Date().toISOString();
     const commitPhase = (phase: string, progress: number, nextAction: string): void => { this.storage.appendEvent(run.run_id, { kind: "PHASE_COMMITTED", phase, detail: { progress, next_action: nextAction } }); onPhase(phase, progress, nextAction); };
     this.storage.runDir(run.run_id);
-    this.storage.writeJson(run.run_id, "request.json", request);
-    this.storage.writeJson(run.run_id, "host-context.json", { workspace_id: run.workspace_id, trust_mode: "trusted", root: this.root });
+    this.storage.writeJson(run.run_id, "request.json", redactSecrets(request));
+    const requestedSnapshot = isRecord(request.__trust_snapshot) ? request.__trust_snapshot : {};
+    this.storage.writeJson(run.run_id, "host-context.json", { ...(redactSecrets(requestedSnapshot) as Record<string, unknown>), workspace_id: run.workspace_id, workspace_root: "<authorized>", production: this.production });
     this.storage.appendEvent(run.run_id, { kind: "RUN_CREATED", phase: "CREATED", detail: { variant } });
     commitPhase("TARGET_READY", 8, "poll get_run_status");
     const target = await startDemoTarget(variant);
@@ -66,7 +70,7 @@ export class AuditVerticalSlice {
       this.storage.writeJson(run.run_id, "suite-manifest.json", { digest: suiteDigest(compiled.source), forbidden_imports: false });
       commitPhase("SUITE_FROZEN", 54, "poll get_run_status");
       commitPhase("RUNNING", 60, "poll get_run_status");
-      const execution = await this.runner.run({ runId: run.run_id, baseUrl: target.baseUrl, plan: compiled.plan, variant, storage: this.storage });
+      const execution = await this.runner.run({ runId: run.run_id, baseUrl: target.baseUrl, allowedOrigins: [new URL(target.baseUrl).origin], plan: compiled.plan, variant, storage: this.storage });
       commitPhase("EXECUTION_FINISHED", 78, "poll get_run_status");
       const audit = auditExecution(compiled.plan.cases.map((item) => item.case_id), execution.results);
       this.storage.writeJson(run.run_id, "completion-audit.json", audit);
@@ -154,7 +158,7 @@ export class AuditVerticalSlice {
     }));
     const input: PlannerInput = {
       schemaVersion: "2.1", skeletons, candidates, contractRefs: [{ contractId: "fixture-plan", version: "2.1", ref: "fixture://plan" }],
-      untrustedObservations: Object.entries(coverage.discovery).slice(0, 24).map(([kind, value], index) => ({ observationId: "obs_" + index, untrusted: true as const, kind, value: JSON.stringify(value).slice(0, 400) }))
+      untrustedObservations: Object.entries(coverage.discovery).slice(0, 24).map(([kind, value], index) => ({ observationId: "obs_" + index, untrusted: true as const, kind, value: JSON.stringify(redactSecrets(value)).slice(0, 400) }))
     };
     const options: PlannerProviderOptions = { provider_id: "local-structured", provider_version: "1", model_id: "local-deterministic", timeout_ms: 2000, token_budget: 2048, temperature: 0, max_attempts: 2, ...this.plannerConfig };
     const cache = new PlanTemplateCache(path.join(this.storage.dataRoot, "plan-cache"));
@@ -168,13 +172,13 @@ export class AuditVerticalSlice {
       let lastError: unknown;
       for (let attempt = 1; attempt <= (options.max_attempts || 2); attempt += 1) {
         attempts = attempt;
-        try { output = await withTimeout(provider.fill(input, options), options.timeout_ms); const valid = validatePlannerOutput(input, output, { allowedOrigin: new URL(targetUrl).origin, production: false }); if (!valid.ok) throw plannerError("PLAN_VALIDATION_FAILED: " + valid.errors.join("; ")); break; }
+        try { output = await withTimeout(provider.fill(input, options), options.timeout_ms); const valid = validatePlannerOutput(input, output, { allowedOrigin: new URL(targetUrl).origin, production: this.production }); if (!valid.ok) throw plannerError("PLAN_VALIDATION_FAILED: " + valid.errors.join("; ")); break; }
         catch (error) { lastError = error; if (attempt === (options.max_attempts || 2)) throw plannerError(lastError instanceof Error ? lastError.message : String(lastError)); }
       }
       output = output!;
       cache.put(key, output, options);
     }
-    const validation = validatePlannerOutput(input, output, { allowedOrigin: new URL(targetUrl).origin, production: false });
+    const validation = validatePlannerOutput(input, output, { allowedOrigin: new URL(targetUrl).origin, production: this.production });
     if (!validation.ok) throw plannerError("PLAN_VALIDATION_FAILED: " + validation.errors.join("; "));
     const template = cache.get(key) || cache.put(key, output, options);
     return { input, output, template, audit: { schema_version: "2.1", provider_id: options.provider_id, provider_version: options.provider_version, model_id: options.model_id, temperature: 0, timeout_ms: options.timeout_ms, token_budget: options.token_budget, attempts, cache_hit: Boolean(cached), output_digest: template.selections_digest } };
@@ -215,3 +219,4 @@ function stableJson(value: unknown): string {
   if (value && typeof value === "object") return "{" + Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => JSON.stringify(key) + ":" + stableJson(item)).join(",") + "}";
   return JSON.stringify(value);
 }
+function isRecord(value: unknown): value is Record<string, unknown> { return Boolean(value) && typeof value === "object" && !Array.isArray(value); }

@@ -16,6 +16,13 @@
     },
     "redacted": {
       "type": "boolean"
+    },
+    "redaction_status": {
+      "type": "string",
+      "enum": [
+        "COMPLETE",
+        "INCOMPLETE"
+      ]
     }
   },
   "required": [

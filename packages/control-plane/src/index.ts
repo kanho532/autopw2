@@ -8,6 +8,7 @@ import path from "node:path";
 import { Buffer } from "node:buffer";
 import type { OperationRegistry, OperationRecord } from "@autopw/operation-registry";
 import type { FixtureWorker } from "@autopw/worker";
+import { SecurityPolicyEngine, resolveAuthorizedPath, type HostContextLike } from "@autopw/security";
 
 type JsonObject = Record<string, any>;
 interface ToolContract { name: string; input_schema: JsonObject; result_union: JsonObject[]; creates_operation: boolean; }
@@ -25,6 +26,7 @@ export class ControlPlane {
   readonly log: Logger;
   readonly maxBytes = 524288;
   readonly schemasDir: string;
+  readonly security = new SecurityPolicyEngine();
 
   constructor({ schemasDir, toolsDir, hostContexts, operationRegistry, worker, logger }: {
     schemasDir: string; toolsDir: string; hostContexts?: Record<string, HostContextEntry>;
@@ -58,7 +60,7 @@ export class ControlPlane {
     return { server_info: { name: "autopw-mcp", version: "2.1.0-rc5.mcp-first", tools: Object.keys(this.tools), m0_frozen: true, policy_version: "1.0.0" } };
   }
 
-  authorize(toolName: string, request: JsonObject): { ok: true; hostContext: JsonObject; tool: ToolContract } | { ok: false; error: { code: string; message: string } } {
+  authorize(toolName: string, request: JsonObject): { ok: true; hostContext: JsonObject; tool: ToolContract; securitySnapshot: Record<string, unknown> } | { ok: false; error: { code: string; message: string } } {
     const tool = this.tools[toolName];
     if (!tool) return { ok: false, error: mkErr("TOOL_NOT_FOUND", "unknown tool " + toolName) };
     const inputValidator = this.inputValidators[toolName];
@@ -66,13 +68,18 @@ export class ControlPlane {
     const host = this.hostContexts[String(request.workspace_id)];
     if (!host) return { ok: false, error: mkErr("UNAUTHORIZED_WORKSPACE", "workspace not in host allowlist") };
     const hostContext = host.mcp_host_context;
+    let securitySnapshot: Record<string, unknown>;
+    try { securitySnapshot = this.security.authorizeRequest(hostContext as HostContextLike, request).snapshot; }
+    catch (error) { const value = error as Error & { code?: string }; return { ok: false, error: mkErr(value.code || "SECURITY_POLICY_VIOLATION", value.message || "security policy rejected request") }; }
     const base = String(hostContext.workspace_authorization.workspace_realpath);
+    try { resolveAuthorizedPath(base, String(request.project_subpath || ".")); }
+    catch (error) { const value = error as Error & { code?: string }; return { ok: false, error: mkErr(value.code || "WORKSPACE_ESCAPE", value.message || "project path is outside workspace") }; }
     const projectPath = path.resolve(base, String(request.project_subpath || "."));
     if (!fs.existsSync(projectPath)) return { ok: false, error: mkErr("PROJECT_SUBPATH_NOT_FOUND", "project_subpath does not exist") };
     if (!fs.statSync(projectPath).isDirectory()) return { ok: false, error: mkErr("PROJECT_SUBPATH_NOT_DIRECTORY", "project_subpath is not a directory") };
     if (!this._isAuthorizedPath(base, String(request.project_subpath || "."))) return { ok: false, error: mkErr("WORKSPACE_ESCAPE", "project_subpath escapes workspace realpath") };
     if (request.auth_scope_id && request.auth_scope_id !== hostContext.auth_scope.auth_scope_id) return { ok: false, error: mkErr("AUTH_SCOPE_NOT_APPROVED", "auth_scope_id not approved by host") };
-    return { ok: true, hostContext, tool };
+    return { ok: true, hostContext, tool, securitySnapshot };
   }
 
   private _isAuthorizedPath(base: string, projectSubpath: string): boolean {
@@ -123,9 +130,10 @@ export class ControlPlane {
     const tool = auth.tool;
     if (!tool.creates_operation) return this._handleQuery(toolName, request);
 
+    const persistedRequest = { ...request, __trust_snapshot: auth.securitySnapshot };
     const existing = this.registry.findByIdempotency({ workspace_id: String(request.workspace_id), tool: toolName, client_request_id: String(request.client_request_id) });
     if (existing) {
-      if (!this.registry.sameParams(existing, request)) return err("IDEMPOTENCY_CONFLICT", "same client_request_id with different params");
+      if (!this.registry.sameParams(existing, persistedRequest)) return err("IDEMPOTENCY_CONFLICT", "same client_request_id with different params");
       return this._acceptedFor(toolName, existing);
     }
 
@@ -156,7 +164,7 @@ export class ControlPlane {
 
     let created: { operation_id: string; operation: OperationRecord; created: boolean };
     try {
-      created = this.registry.create({ tool: toolName, client_request_id: String(request.client_request_id), workspace_id: String(request.workspace_id), kind: this._opKind(toolName), params: request });
+      created = this.registry.create({ tool: toolName, client_request_id: String(request.client_request_id), workspace_id: String(request.workspace_id), kind: this._opKind(toolName), params: persistedRequest });
     } catch (error) {
       const value = error as Error & { code?: string };
       return err(value.code || "OPERATION_CREATE_FAILED", value.message);
@@ -168,7 +176,7 @@ export class ControlPlane {
     } else if (targetTools.includes(toolName)) {
       this.registry.update(created.operation_id, (record) => { record.run_id = String(request.run_id); return record; });
     }
-    this.worker.enqueue(created.operation_id, created.operation.kind, request, toolName);
+    this.worker.enqueue(created.operation_id, created.operation.kind, persistedRequest, toolName);
     return this._acceptedFor(toolName, this.registry.get(created.operation_id) as OperationRecord);
   }
 
