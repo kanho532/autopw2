@@ -38,8 +38,8 @@ export async function discover(input: DiscoveryInput): Promise<DiscoveryResult> 
   let filesScanned = 0;
   let budgetExceeded = false;
 
-  const files = walk(root, 0, budget.max_depth, budget.max_files, ignored);
-  if (files.length >= budget.max_files) budgetExceeded = true;
+  const files = walk(root, 0, budget.max_depth, budget.max_files + 1, ignored);
+  if (files.length > budget.max_files) budgetExceeded = true;
   for (const file of files) {
     if (filesScanned >= budget.max_files) { budgetExceeded = true; break; }
     filesScanned += 1;

@@ -67,6 +67,9 @@ export class ControlPlane {
     if (!host) return { ok: false, error: mkErr("UNAUTHORIZED_WORKSPACE", "workspace not in host allowlist") };
     const hostContext = host.mcp_host_context;
     const base = String(hostContext.workspace_authorization.workspace_realpath);
+    const projectPath = path.resolve(base, String(request.project_subpath || "."));
+    if (!fs.existsSync(projectPath)) return { ok: false, error: mkErr("PROJECT_SUBPATH_NOT_FOUND", "project_subpath does not exist") };
+    if (!fs.statSync(projectPath).isDirectory()) return { ok: false, error: mkErr("PROJECT_SUBPATH_NOT_DIRECTORY", "project_subpath is not a directory") };
     if (!this._isAuthorizedPath(base, String(request.project_subpath || "."))) return { ok: false, error: mkErr("WORKSPACE_ESCAPE", "project_subpath escapes workspace realpath") };
     if (request.auth_scope_id && request.auth_scope_id !== hostContext.auth_scope.auth_scope_id) return { ok: false, error: mkErr("AUTH_SCOPE_NOT_APPROVED", "auth_scope_id not approved by host") };
     return { ok: true, hostContext, tool };
@@ -120,6 +123,12 @@ export class ControlPlane {
     const tool = auth.tool;
     if (!tool.creates_operation) return this._handleQuery(toolName, request);
 
+    const existing = this.registry.findByIdempotency({ workspace_id: String(request.workspace_id), tool: toolName, client_request_id: String(request.client_request_id) });
+    if (existing) {
+      if (!this.registry.sameParams(existing, request)) return err("IDEMPOTENCY_CONFLICT", "same client_request_id with different params");
+      return this._acceptedFor(toolName, existing);
+    }
+
     if (toolName === "derive_coverage" || toolName === "run_audit") {
       try {
         const hostMax = Number(auth.hostContext.max_execution_instances_per_run || 100);
@@ -133,7 +142,8 @@ export class ControlPlane {
           });
         }
       } catch (error) {
-        return err("PREFLIGHT_FAILED", error instanceof Error ? error.message : String(error));
+        const value = error as Error & { code?: string };
+        return err(value.code || "PREFLIGHT_FAILED", value.message || String(error));
       }
     }
 

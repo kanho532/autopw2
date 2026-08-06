@@ -128,6 +128,13 @@ export class OperationRegistry {
     return workspace_id + "|" + tool + "|" + client_request_id;
   }
 
+  findByIdempotency({ workspace_id, tool, client_request_id }: { workspace_id: string; tool: string; client_request_id: string }): OperationRecord | undefined {
+    const operationId = this.index.get(this._key(workspace_id, tool, client_request_id));
+    return operationId ? this.get(operationId) : undefined;
+  }
+
+  sameParams(existing: OperationRecord, params: Record<string, unknown>): boolean { return canonicalJson(existing.params) === canonicalJson(params || {}); }
+
   private _reindex(): void {
     this.index.clear();
     this.byId.clear();
@@ -163,7 +170,7 @@ export class OperationRegistry {
     if (existingId) {
       const existing = this.byId.get(existingId);
       if (!existing) throw Object.assign(new Error("index drift"), { code: "INDEX_DRIFT" });
-      if (canonicalJson(existing.params) !== canonicalJson(params || {})) {
+      if (!this.sameParams(existing, params || {})) {
         const error = Object.assign(new Error("IDEMPOTENCY_CONFLICT: same client_request_id with different params"), { code: "IDEMPOTENCY_CONFLICT", existing_operation_id: existingId });
         throw error;
       }

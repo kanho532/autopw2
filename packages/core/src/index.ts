@@ -20,6 +20,7 @@ export class AuditVerticalSlice {
   readonly storage: RunStorage;
   readonly runner = new PlaywrightFixtureRunner();
   readonly fixtureVariant?: FixtureVariant;
+  readonly preflightCache = new Map<string, { expires_at: number; value: CoveragePreview }>();
 
   constructor({ root, dataRoot, fixtureVariant }: { root: string; dataRoot: string; fixtureVariant?: FixtureVariant }) {
     this.root = path.resolve(root);
@@ -81,8 +82,15 @@ export class AuditVerticalSlice {
   }
 
   async preflight({ request }: { request: Record<string, unknown> }): Promise<CoveragePreview> {
+    const key = stableJson(Object.fromEntries(Object.entries(request).filter(([name]) => name !== "client_request_id")));
+    const cached = this.preflightCache.get(key);
+    if (cached && cached.expires_at > Date.now()) return cached.value;
     const target = await startDemoTarget(this.variant(this.fixtureVariant));
-    try { return await this.deriveCoverage({ request, targetUrl: target.baseUrl }); }
+    try {
+      const value = await this.deriveCoverage({ request, targetUrl: target.baseUrl });
+      this.preflightCache.set(key, { expires_at: Date.now() + 30_000, value });
+      return value;
+    }
     finally { await target.close(); }
   }
 
@@ -93,9 +101,10 @@ export class AuditVerticalSlice {
       root: this.root,
       project_subpath: String(request.project_subpath || "."),
       target_url: targetUrl,
-      budget: { max_depth: 6, max_files: 200, timeout_ms: 3000, allowed_origins: targetUrl ? [new URL(targetUrl).origin] : [] }
+      budget: { max_depth: 6, max_files: 500, timeout_ms: 3000, allowed_origins: targetUrl ? [new URL(targetUrl).origin] : [] }
     });
-    const diff = analyzeDiff({ diffRef: typeof request.diff_ref === "string" ? request.diff_ref : undefined, root: this.root });
+    const sourceMappings = discovery.observations.filter((observation) => observation.kind === "source" && typeof observation.path === "string" && Array.isArray(observation.features)).map((observation) => ({ file_glob: String(observation.path), features: (observation.features as unknown[]).filter((feature): feature is string => typeof feature === "string") }));
+    const diff = analyzeDiff({ diffRef: typeof request.diff_ref === "string" ? request.diff_ref : undefined, root: this.root, mappings: sourceMappings });
     const matrixBudget = typeof request.matrix_budget === "object" && request.matrix_budget ? Number((request.matrix_budget as Record<string, unknown>).max_execution_instances || 0) : 0;
     const derivation = deriveCoverage({
       discovery, tier, diff,
@@ -127,4 +136,10 @@ export class AuditVerticalSlice {
   }
 
   private variant(value: FixtureVariant | undefined): FixtureVariant { return value === "fail" || value === "incomplete" ? value : "pass"; }
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return "[" + value.map(stableJson).join(",") + "]";
+  if (value && typeof value === "object") return "{" + Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => JSON.stringify(key) + ":" + stableJson(item)).join(",") + "}";
+  return JSON.stringify(value);
 }

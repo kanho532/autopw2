@@ -15,9 +15,11 @@ export function planExecutionInstances(cases: PlannerCase[], tier: Tier, profile
   const viewports = tier === "full" ? (profile.viewports || [{ width: 1280, height: 720 }, { width: 1440, height: 900 }]) : (profile.viewports || DEFAULTS.viewports);
   const locales = profile.locales || DEFAULTS.locales;
   const authScopes = profile.auth_scope_ids || DEFAULTS.auth_scope_ids;
+  const effective_budget = Math.min(profile.host_max_execution_instances || Number.MAX_SAFE_INTEGER, profile.profile_max_execution_instances || Number.MAX_SAFE_INTEGER);
   const batches: ExecutionBatch[] = [];
   const instances: ExecutionInstance[] = [];
   const sortedCases = [...cases].sort((a, b) => a.case_id.localeCompare(b.case_id));
+  if (sortedCases.length === 0) return { projected_execution_instances: 0, dimensions: { browsers: {}, viewports: {}, locales: {}, auth_scopes: {} }, batches: [], instances: [], effective_budget, narrowing_suggestions: [] };
   for (const batchKey of cartesian(tier, browsers, viewports, locales, authScopes)) {
     const batch_id = "BAT-" + shortDigest(JSON.stringify(batchKey));
     const batch: ExecutionBatch = { ...batchKey, batch_id, case_ids: sortedCases.map((item) => item.case_id) };
@@ -28,7 +30,6 @@ export function planExecutionInstances(cases: PlannerCase[], tier: Tier, profile
   instances.sort((a, b) => a.case_id.localeCompare(b.case_id) || a.execution_id.localeCompare(b.execution_id));
   const dimensions = { browsers: countBy(instances, (instance) => batches.find((batch) => batch.batch_id === instance.batch_id)?.browser || ""), viewports: countBy(instances, (instance) => { const viewport = batches.find((batch) => batch.batch_id === instance.batch_id)?.viewport; return viewport ? viewport.width + "x" + viewport.height : ""; }), locales: countBy(instances, (instance) => batches.find((batch) => batch.batch_id === instance.batch_id)?.locale || ""), auth_scopes: countBy(instances, (instance) => batches.find((batch) => batch.batch_id === instance.batch_id)?.auth_scope_id || "") };
   const projected = instances.length;
-  const effective_budget = Math.min(profile.host_max_execution_instances || Number.MAX_SAFE_INTEGER, profile.profile_max_execution_instances || Number.MAX_SAFE_INTEGER);
   const narrowing_suggestions = projected > effective_budget ? ["reduce browser or viewport dimensions", "use fast/smoke explicitly", "increase the approved matrix budget"] : [];
   return { projected_execution_instances: projected, dimensions, batches, instances, effective_budget, narrowing_suggestions };
 }
