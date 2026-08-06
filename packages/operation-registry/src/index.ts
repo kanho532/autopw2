@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 
-export type OperationStatus = "ACCEPTED" | "RUNNING" | "COMPLETED" | "FAILED";
+export type OperationStatus = "ACCEPTED" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED";
 
 export interface Logger {
   info(message: string): void;
@@ -75,6 +75,13 @@ const OP_PREFIX = "op_";
 function genId(): string { return OP_PREFIX + crypto.randomBytes(10).toString("hex"); }
 function now(): number { return Date.now(); }
 function iso(ms: number): string { return new Date(ms).toISOString(); }
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return "[" + value.map((item) => canonicalJson(item)).join(",") + "]";
+  if (value && typeof value === "object") {
+    return "{" + Object.keys(value as Record<string, unknown>).sort().map((key) => JSON.stringify(key) + ":" + canonicalJson((value as Record<string, unknown>)[key])).join(",") + "}";
+  }
+  return JSON.stringify(value);
+}
 
 const DEFAULT_RETENTION: RetentionPolicy = {
   operation_ttl_ms: 604800000, run_ttl_ms: 2592000000, evidence_ttl_ms: 0,
@@ -142,7 +149,7 @@ export class OperationRegistry {
     if (existingId) {
       const existing = this.byId.get(existingId);
       if (!existing) throw Object.assign(new Error("index drift"), { code: "INDEX_DRIFT" });
-      if (JSON.stringify(existing.params) !== JSON.stringify(params || {})) {
+      if (canonicalJson(existing.params) !== canonicalJson(params || {})) {
         const error = Object.assign(new Error("IDEMPOTENCY_CONFLICT: same client_request_id with different params"), { code: "IDEMPOTENCY_CONFLICT", existing_operation_id: existingId });
         throw error;
       }

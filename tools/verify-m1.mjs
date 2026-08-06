@@ -38,6 +38,11 @@ const runReq = {
   check("idempotency-no-duplicate-runs", harness.server.workerRef().runs.size === 1, "runs=" + harness.server.workerRef().runs.size);
   const conflict = await call(harness.server, "run_audit", { ...runReq, base_tier: "full" });
   check("idempotency-conflict-on-param-change", conflict.kind === "error" && conflict.error.code === "IDEMPOTENCY_CONFLICT", "code=" + (conflict.error && conflict.error.code));
+  const reordered = await call(harness.server, "run_audit", {
+    schema_version: "2.1", client_request_id: "cr_run_1", workspace_id: "ws_demo",
+    base_tier: "fast", profile_path: ".autopw/profile.yaml", project_subpath: "."
+  });
+  check("idempotency-ignores-object-key-order", reordered.kind === "accepted" && reordered.operation_id === outputs[0].operation_id, "operation=" + reordered.operation_id);
   const runningStatus = await call(harness.server, "get_run_status", { schema_version: "2.1", workspace_id: "ws_demo", run_id: outputs[0].run_handle });
   check("running-status-omits-null-contract-fields", runningStatus.kind === "ok" && !Object.prototype.hasOwnProperty.call(runningStatus, "gate") && !Object.prototype.hasOwnProperty.call(runningStatus, "audit_status"), "kind=" + runningStatus.kind);
   const explanation = await call(harness.server, "explain_run", { schema_version: "2.1", workspace_id: "ws_demo", run_id: outputs[0].run_handle });
@@ -74,6 +79,22 @@ const runReq = {
   await close(second);
 }
 
+// Result queries expose their frozen discriminators while work is in flight;
+// unknown tools preserve TOOL_NOT_FOUND instead of being relabeled as an
+// internal contract failure.
+{
+  const harness = await newHarness({ stepMs: 40 });
+  const preview = await call(harness.server, "derive_coverage", { schema_version: "2.1", client_request_id: "cr_result_query_1", workspace_id: "ws_demo", project_subpath: ".", profile_path: ".autopw/profile.yaml", tier: "smoke" });
+  const operationResult = await call(harness.server, "get_operation_result", { schema_version: "2.1", workspace_id: "ws_demo", operation_id: preview.operation_id });
+  check("operation-result-nonterminal-is-not-ready", operationResult.kind === "not_ready" && operationResult.operation_id === preview.operation_id, "kind=" + operationResult.kind);
+  const run = await call(harness.server, "run_audit", { ...runReq, client_request_id: "cr_result_query_run_1" });
+  const runResult = await call(harness.server, "get_run_result", { schema_version: "2.1", workspace_id: "ws_demo", run_id: run.run_handle });
+  check("run-result-nonterminal-is-not-ready", runResult.kind === "not_ready" && runResult.run_id === run.run_handle, "kind=" + runResult.kind);
+  const unknown = await call(harness.server, "not_a_tool", { schema_version: "2.1", workspace_id: "ws_demo" });
+  check("unknown-tool-preserves-tool-not-found", unknown.kind === "error" && unknown.error.code === "TOOL_NOT_FOUND", "code=" + (unknown.error && unknown.error.code));
+  await close(harness);
+}
+
 // Controlled cancellation and cleanup are real MCP operations, not no-op accepts.
 {
   const harness = await newHarness({ stepMs: 20 });
@@ -83,6 +104,7 @@ const runReq = {
   await sleep(100);
   const status = await call(harness.server, "get_run_status", { schema_version: "2.1", workspace_id: "ws_demo", run_id: created.run_handle });
   check("cancel-produces-incomplete-gate", status.kind === "ok" && status.phase === "GATED" && status.audit_status === "INCOMPLETE" && status.gate === "incomplete", "phase=" + status.phase + ", gate=" + status.gate);
+  check("cancel-terminal-path-persists-finalization-fields", status.kind === "ok" && status.phase === "GATED" && status.run_status === "COMPLETED" && status.next_action === "get_run_result", "phase=" + status.phase + ", status=" + status.run_status);
   const cleaned = await call(harness.server, "cleanup_run", { schema_version: "2.1", client_request_id: "cr_cleanup_1", workspace_id: "ws_demo", run_id: created.run_handle });
   check("cleanup-returns-contract-valid-accepted", cleaned.kind === "accepted" && cleaned.run_id === created.run_handle, "kind=" + cleaned.kind);
   await close(harness);

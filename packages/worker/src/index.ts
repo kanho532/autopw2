@@ -44,6 +44,7 @@ export class FixtureWorker {
   readonly budgets: { installation: number; workspace: number; global: number; workspacePerRun: number };
   readonly running = new Set<string>();
   readonly runningByWorkspace = new Map<string, number>();
+  readonly runningByRun = new Map<string, number>();
   readonly log: Logger;
   readonly stepMs: number;
   stopped = false;
@@ -118,11 +119,20 @@ export class FixtureWorker {
       this.queue.unshift(slot);
       return;
     }
+    const operation = this.registry.get(slot.operation_id);
+    const runId = operation?.run_id || (typeof slot.request.run_id === "string" ? slot.request.run_id : "");
+    const runRunning = runId ? (this.runningByRun.get(runId) || 0) : 0;
+    if (runId && runRunning >= this.budgets.workspacePerRun) {
+      this.queue.unshift(slot);
+      return;
+    }
     this.running.add(slot.operation_id);
     this.runningByWorkspace.set(workspaceId, workspaceRunning + 1);
+    if (runId) this.runningByRun.set(runId, runRunning + 1);
     this._run(slot.operation_id, slot.kind, slot.request, slot.toolName).finally(() => {
       this.running.delete(slot.operation_id);
       this.runningByWorkspace.set(workspaceId, Math.max(0, (this.runningByWorkspace.get(workspaceId) || 1) - 1));
+      if (runId) this.runningByRun.set(runId, Math.max(0, (this.runningByRun.get(runId) || 1) - 1));
       Promise.resolve().then(this.tick);
     });
   }
@@ -218,12 +228,18 @@ export class FixtureWorker {
   }
 
   private _finalizeCancelled(run: RunState): void {
-    run.phase = "GATED";
-    run.run_status = "COMPLETED";
-    run.audit_status = "INCOMPLETE";
-    run.gate = "incomplete";
-    run.next_action = "get_run_result";
-    this._persistRun(run, "COMPLETED");
+    // Cancellation follows the frozen terminalization path; it must not jump
+    // directly from TERMINALIZING to GATED.
+    for (const phase of ["RUNTIME_FINALIZED", "AUDITED", "REPORTED", "GATED"] as const) {
+      run.phase = phase;
+      if (phase === "AUDITED") run.audit_status = "INCOMPLETE";
+      if (phase === "GATED") {
+        run.run_status = "COMPLETED";
+        run.gate = "incomplete";
+        run.next_action = "get_run_result";
+      }
+      this._persistRun(run, phase === "GATED" ? "COMPLETED" : "RUNNING");
+    }
   }
 
   cleanup(run_id: string): { ok: boolean; cleaned?: string[]; idempotent?: boolean; run_id?: string; code?: string } {

@@ -16,8 +16,9 @@ interface HostContextEntry { mcp_host_context: JsonObject; }
 
 export class ControlPlane {
   readonly ajv: Ajv;
-  readonly tools: Record<string, ToolContract> = {};
-  readonly resultValidators: Record<string, ValidateFunction[]> = {};
+  readonly tools: Record<string, ToolContract> = Object.create(null) as Record<string, ToolContract>;
+  readonly inputValidators: Record<string, ValidateFunction> = Object.create(null) as Record<string, ValidateFunction>;
+  readonly resultValidators: Record<string, ValidateFunction[]> = Object.create(null) as Record<string, ValidateFunction[]>;
   readonly hostContexts: Record<string, HostContextEntry>;
   readonly registry: OperationRegistry;
   readonly worker: FixtureWorker;
@@ -41,6 +42,7 @@ export class ControlPlane {
       if (!file.endsWith(".tool.json")) continue;
       const tool = JSON.parse(fs.readFileSync(path.join(toolsDir, file), "utf8")) as ToolContract;
       this.tools[tool.name] = tool;
+      this.inputValidators[tool.name] = this._compile(tool.input_schema);
       this.resultValidators[tool.name] = tool.result_union.map((schema) => this._compile(schema));
     }
     this.hostContexts = hostContexts || {};
@@ -59,7 +61,7 @@ export class ControlPlane {
   authorize(toolName: string, request: JsonObject): { ok: true; hostContext: JsonObject; tool: ToolContract } | { ok: false; error: { code: string; message: string } } {
     const tool = this.tools[toolName];
     if (!tool) return { ok: false, error: mkErr("TOOL_NOT_FOUND", "unknown tool " + toolName) };
-    const inputValidator = this._compile(tool.input_schema);
+    const inputValidator = this.inputValidators[toolName];
     if (!inputValidator(request)) return { ok: false, error: mkErr("INVALID_INPUT", this._errText(inputValidator.errors)) };
     const host = this.hostContexts[String(request.workspace_id)];
     if (!host) return { ok: false, error: mkErr("UNAUTHORIZED_WORKSPACE", "workspace not in host allowlist") };
@@ -107,7 +109,8 @@ export class ControlPlane {
     try { output = await this._handle(toolName, request); }
     catch (error) { this.log.error(error); output = err("INTERNAL_ERROR", error instanceof Error ? error.message : String(error)); }
     const bounded = this._truncate(output);
-    const validator = (this.resultValidators[toolName] || []).find((candidate) => candidate(bounded));
+    if (!this.tools[toolName]) return bounded;
+    const validator = this.resultValidators[toolName].find((candidate) => candidate(bounded));
     return validator ? bounded : err("INTERNAL_CONTRACT_VIOLATION", "handler returned a result outside the tool contract");
   }
 
@@ -162,7 +165,7 @@ export class ControlPlane {
         if (!operation) return err("OPERATION_NOT_FOUND", "operation id unknown or expired");
         if (operation.workspace_id !== String(request.workspace_id)) return err("OPERATION_FORBIDDEN", "operation not bound to this workspace");
         if (toolName === "get_operation_status") return ok({ operation_id: operation.operation_id, status: operation.status, label: operation.status.toLowerCase(), poll_after_ms: 2000 });
-        if (operation.status !== "COMPLETED") return ok({ operation_id: operation.operation_id, not_ready: true, poll_after_ms: 2000 });
+        if (operation.status !== "COMPLETED") return notReady({ operation_id: operation.operation_id, poll_after_ms: 2000 });
         return ok({ operation_id: operation.operation_id, result_ref: operation.result_ref || { handle: "art_preview", kind: "cdd.json" }, summary: operation.result_summary || {} });
       }
       if (toolName === "get_run_status") {
@@ -176,8 +179,8 @@ export class ControlPlane {
       if (toolName === "get_run_result") {
         const run = this.worker.getRun(String(request.run_id));
         if (!run || run.workspace_id !== String(request.workspace_id)) return err("RUN_FORBIDDEN", "handle not bound to this workspace");
-        if (run.phase !== "GATED" && run.run_status !== "FAILED") return ok({ run_id: run.run_id, not_ready: true, poll_after_ms: 2000 });
-        if (run.run_status === "FAILED") return ok({ run_id: run.run_id, failed: true, fatal_class: run.fatal_class, failure_ref: { handle: "art_failure", kind: "failure.json" } });
+        if (run.phase !== "GATED" && run.run_status !== "FAILED") return notReady({ run_id: run.run_id, poll_after_ms: 2000 });
+        if (run.run_status === "FAILED") return failed({ run_id: run.run_id, fatal_class: run.fatal_class || "STATE_CORRUPTED", failure_ref: { handle: "art_failure", kind: "failure.json" } });
         return ok({ run_id: run.run_id, gate: run.gate, audit_status: run.audit_status, results_ref: { handle: "art_results", kind: "results.json" }, report_ref: { handle: "art_report", kind: "report.md" }, gate_summary: {} });
       }
       if (toolName === "explain_run") {
@@ -200,5 +203,8 @@ export class ControlPlane {
 
 interface ErrorObject { instancePath: string; message?: string; }
 function mkErr(code: string, message: string): { code: string; message: string } { return { code, message }; }
-function ok(payload: JsonObject): JsonObject { return { kind: "ok", schema_version: "2.1", ...payload }; }
+function result(kind: string, payload: JsonObject): JsonObject { return { kind, schema_version: "2.1", ...payload }; }
+function ok(payload: JsonObject): JsonObject { return result("ok", payload); }
+function notReady(payload: JsonObject): JsonObject { return result("not_ready", payload); }
+function failed(payload: JsonObject): JsonObject { return result("failed", payload); }
 function err(code: string, message: string): JsonObject { return { kind: "error", schema_version: "2.1", error: { code, message }, retryable: false }; }
