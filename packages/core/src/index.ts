@@ -16,14 +16,16 @@ export class AuditVerticalSlice {
   readonly root: string;
   readonly storage: RunStorage;
   readonly runner = new PlaywrightFixtureRunner();
+  readonly fixtureVariant?: FixtureVariant;
 
-  constructor({ root, dataRoot }: { root: string; dataRoot: string }) {
+  constructor({ root, dataRoot, fixtureVariant }: { root: string; dataRoot: string; fixtureVariant?: FixtureVariant }) {
     this.root = path.resolve(root);
     this.storage = new RunStorage(dataRoot);
+    this.fixtureVariant = fixtureVariant;
   }
 
   async execute({ run, request, onPhase }: { run: VerticalRun; request: Record<string, unknown>; onPhase: PhaseCallback }): Promise<VerticalResult> {
-    const variant = this.variant(request.fixture_variant);
+    const variant = this.variant(this.fixtureVariant);
     const startedAt = new Date().toISOString();
     const commitPhase = (phase: string, progress: number, nextAction: string): void => { this.storage.appendEvent(run.run_id, { kind: "PHASE_COMMITTED", phase, detail: { progress, next_action: nextAction } }); onPhase(phase, progress, nextAction); };
     this.storage.runDir(run.run_id);
@@ -57,15 +59,15 @@ export class AuditVerticalSlice {
       commitPhase("RUNTIME_FINALIZED", 84, "poll get_run_status");
       commitPhase("AUDITED", 89, "poll get_run_status");
       const gate = evaluateGate({ auditStatus: audit.audit_status, issues: audit.issues });
-      const resultRef: ArtifactRef = { handle: "art_" + run.run_id.slice(4, 12) + "_results", kind: "results.json" };
+      const resultRef = this.storage.writeArtifact(run.run_id, "results.json", "results.json", "{}\n");
       const results = { schema_version: "2.1", run_id: run.run_id, gate: gate.gate, audit_status: audit.audit_status, exit_code: gate.exit_code, results_ref: resultRef, summary: audit.summary, issues: audit.issues };
-      this.storage.writeArtifact(run.run_id, "results.json", "results.json", JSON.stringify(results, null, 2) + "\n");
-      const report = writeReport({ storage: this.storage, runId: run.run_id, gate: gate.gate, auditStatus: audit.audit_status, summary: audit.summary, issues: audit.issues, resultsRef: resultRef });
+      const persistedResultsRef = this.storage.writeArtifact(run.run_id, "results.json", "results.json", JSON.stringify(results, null, 2) + "\n");
+      const report = writeReport({ storage: this.storage, runId: run.run_id, gate: gate.gate, auditStatus: audit.audit_status, summary: audit.summary, issues: audit.issues, resultsRef: persistedResultsRef });
       commitPhase("REPORTED", 96, "poll get_run_status");
       commitPhase("GATED", 100, "get_run_result");
-      return { gate: gate.gate, audit_status: audit.audit_status, results_ref: { ...resultRef, size_bytes: this.storage.readArtifact(run.run_id, "results.json").length }, report_ref: report.reportRef, gate_summary: { ...audit.summary, reason: gate.reason, issues: audit.issues }, cases: execution.results.map((item) => ({ case_id: item.case_id, execution_id: item.execution_id, status: item.status, error: item.error, evidence_refs: item.evidence_refs })), evidence_refs: execution.results.flatMap((item) => item.evidence_refs) };
+      return { gate: gate.gate, audit_status: audit.audit_status, results_ref: persistedResultsRef, report_ref: report.reportRef, gate_summary: { ...audit.summary, reason: gate.reason, issues: audit.issues }, cases: execution.results.map((item) => ({ case_id: item.case_id, execution_id: item.execution_id, status: item.status, error: item.error, evidence_refs: item.evidence_refs })), evidence_refs: execution.results.flatMap((item) => item.evidence_refs) };
     } finally { await target.close(); }
   }
 
-  private variant(value: unknown): FixtureVariant { return value === "fail" || value === "incomplete" ? value : "pass"; }
+  private variant(value: FixtureVariant | undefined): FixtureVariant { return value === "fail" || value === "incomplete" ? value : "pass"; }
 }

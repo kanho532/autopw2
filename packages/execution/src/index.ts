@@ -17,11 +17,14 @@ export class PlaywrightFixtureRunner {
     try {
       for (const item of plan.cases) {
         if (variant === "incomplete" && item.case_id === "case_console_health") {
-          results.push({ execution_id: executionId(item.case_id), case_id: item.case_id, status: "BLOCKED_RESUME", attempts: [], evidence_refs: [], at: new Date().toISOString(), error: "fixture capability intentionally blocked" });
+          const blocked = { execution_id: executionId(item.case_id), case_id: item.case_id, status: "BLOCKED_RESUME" as const, attempts: [], evidence_refs: [], at: new Date().toISOString(), error: "fixture capability intentionally blocked" };
+          results.push(blocked);
+          storage.writeJson(runId, pathForCheckpoint(blocked.execution_id), { execution_id: blocked.execution_id, case_id: blocked.case_id, status: blocked.status, attempt: 0, at: blocked.at });
           continue;
         }
         const result = await this.runCase({ runId, baseUrl, item, variant, browser, storage });
         results.push(result);
+        storage.writeJson(runId, pathForCheckpoint(result.execution_id), { execution_id: result.execution_id, case_id: result.case_id, status: result.status, attempt: result.attempts.length, at: result.at });
         evidence.push({ execution_id: result.execution_id, items: result.evidence_refs, redacted: true });
       }
     } finally { await browser.close(); }
@@ -71,3 +74,4 @@ export class PlaywrightFixtureRunner {
 
 function executionId(caseId: string): string { return "EXE-" + Buffer.from(caseId).toString("hex").padEnd(16, "0").slice(0, 16); }
 function batchId(): string { return "BAT-" + "m2fixture0000000".slice(0, 16); }
+function pathForCheckpoint(executionIdValue: string): string { return "checkpoints/" + executionIdValue + ".json"; }

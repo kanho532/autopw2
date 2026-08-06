@@ -7,7 +7,7 @@ Status: Complete (acceptance met)
 
 - `npm run verify:m0`: 13 passed, 0 failed
 - `npm run verify:m1`: 31 passed, 0 failed
-- `npm run verify:m2`: 14 passed, 0 failed
+- `npm run verify:m2`: 15 passed, 0 failed
 - `npm run build:types`: passed
 - ESLint and `git diff --check`: passed
 
@@ -20,7 +20,7 @@ Status: Complete (acceptance met)
 - Screenshot, console/network failure evidence, execution manifest, checkpoints and result artifacts.
 - Structural completion audit, PRODUCT_DEFECT classification, Markdown/HTML reports and deterministic Gate evaluation.
 - MCP Worker integration for pass, fail and incomplete outcomes, plus result/evidence restoration after restart.
-- `fixture_variant` contract control for deterministic M2 acceptance fixtures.
+- Host Harness-only fixture variants for deterministic M2 acceptance; no fixture switch is exposed through the MCP Tool Contract.
 
 ## Explicitly not in M2
 

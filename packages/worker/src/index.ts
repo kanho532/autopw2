@@ -47,6 +47,7 @@ export class FixtureWorker {
   readonly running = new Set<string>();
   readonly runningByWorkspace = new Map<string, number>();
   readonly runningByRun = new Map<string, number>();
+  readonly inFlight = new Set<Promise<void>>();
   readonly log: Logger;
   readonly stepMs: number;
   readonly runtime?: AuditVerticalSlice;
@@ -97,7 +98,11 @@ export class FixtureWorker {
   }
 
   start(): void { this.stopped = false; this._resyncFromRegistry(); }
-  stop(): void { this.stopped = true; this.queue = []; }
+  async stop(): Promise<void> {
+    this.stopped = true;
+    this.queue = [];
+    await Promise.allSettled([...this.inFlight]);
+  }
   reload(): void { this.start(); }
 
   createFixtureRun({ workspace_id, operation_id }: { workspace_id: string; operation_id: string }): RunState {
@@ -139,12 +144,14 @@ export class FixtureWorker {
     this.running.add(slot.operation_id);
     this.runningByWorkspace.set(workspaceId, workspaceRunning + 1);
     if (runId) this.runningByRun.set(runId, runRunning + 1);
-    this._run(slot.operation_id, slot.kind, slot.request, slot.toolName).finally(() => {
+    const task = this._run(slot.operation_id, slot.kind, slot.request, slot.toolName).finally(() => {
       this.running.delete(slot.operation_id);
       this.runningByWorkspace.set(workspaceId, Math.max(0, (this.runningByWorkspace.get(workspaceId) || 1) - 1));
       if (runId) this.runningByRun.set(runId, Math.max(0, (this.runningByRun.get(runId) || 1) - 1));
+      this.inFlight.delete(task);
       Promise.resolve().then(this.tick);
     });
+    this.inFlight.add(task);
   }
 
   private async _run(operation_id: string, kind: WorkerKind, request: Request, toolName?: ToolName): Promise<void> {
@@ -175,6 +182,10 @@ export class FixtureWorker {
         this._persistRun(run, "COMPLETED");
       } catch (error) {
         this.log.error(error);
+        if (this._isInfrastructureError(error)) {
+          this._finalizeInfrastructureFailure(run, error instanceof Error ? error.message : String(error));
+          return;
+        }
         run.run_status = "FAILED";
         run.fatal_class = "STATE_CORRUPTED";
         run.next_action = "inspect failure artifact";
@@ -256,6 +267,31 @@ export class FixtureWorker {
 
   private _persistRun(run: RunState, operationStatus: "RUNNING" | "COMPLETED" | "FAILED"): void {
     this.registry.updateRun(run, { operationStatus });
+  }
+
+  private _isInfrastructureError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return /(playwright|chromium|browser|executable|econn|eacces|enoent|timeout|target)/i.test(message);
+  }
+
+  private _finalizeInfrastructureFailure(run: RunState, message: string): void {
+    if (run.phase !== "TERMINALIZING" && run.phase !== "GATED") {
+      run.phase = "TERMINALIZING";
+      run.next_action = "inspect infrastructure failure";
+      this._persistRun(run, "RUNNING");
+    }
+    if (run.phase === "GATED") return;
+    for (const phase of ["RUNTIME_FINALIZED", "AUDITED", "REPORTED", "GATED"] as const) {
+      run.phase = phase;
+      if (phase === "AUDITED") run.audit_status = "INCOMPLETE";
+      if (phase === "GATED") {
+        run.run_status = "COMPLETED";
+        run.gate = "infra";
+        run.gate_summary = { reason: "infrastructure failure", message };
+        run.next_action = "get_run_result";
+      }
+      this._persistRun(run, phase === "GATED" ? "COMPLETED" : "RUNNING");
+    }
   }
 
   requestCancel(run_id: string): boolean {

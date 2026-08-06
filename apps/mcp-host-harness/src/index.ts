@@ -19,7 +19,7 @@ export interface Harness {
   server: McpServer;
   dataRoot: string;
   hosts: Record<string, { mcp_host_context: JsonObject }>;
-  cleanup(): void;
+  cleanup(): Promise<void>;
 }
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -54,19 +54,20 @@ export function loadInventory(): ContractInventory {
   };
 }
 
-export async function newHarness({ retention, budgets, stepMs, dataRoot: requestedDataRoot }: {
+export async function newHarness({ retention, budgets, stepMs, fixtureVariant, dataRoot: requestedDataRoot }: {
   retention?: Record<string, number | boolean>;
   budgets?: Record<string, number>;
   stepMs?: number;
+  fixtureVariant?: "pass" | "fail" | "incomplete";
   dataRoot?: string;
 } = {}): Promise<Harness> {
   const dataRoot = requestedDataRoot || path.join(root, ".autopw", "test-" + crypto.randomBytes(6).toString("hex"));
   fs.mkdirSync(dataRoot, { recursive: true });
   const hosts = { ws_demo: HERE_TRUSTED, ws_pr: HERE_UNTRUSTED_PR };
-  const server = new McpServer({ root, dataRoot, retention, budgets, stepMs, logger });
+  const server = new McpServer({ root, dataRoot, retention, budgets, stepMs, fixtureVariant, logger });
   for (const [workspace, context] of Object.entries(hosts)) server.registerHostContext(workspace, context);
   server.start();
-  return { server, dataRoot, hosts, cleanup: () => { server.stop(); fs.rmSync(dataRoot, { recursive: true, force: true }); } };
+  return { server, dataRoot, hosts, cleanup: async () => { await server.stop(); fs.rmSync(dataRoot, { recursive: true, force: true }); } };
 }
 
 export function call(server: McpServer, name: string, request: JsonObject): Promise<JsonObject> { return server.callTool(name, request); }
