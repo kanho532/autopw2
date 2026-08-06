@@ -1,0 +1,11 @@
+{
+  "schema_version": "2.1",
+  "base_tier": "fast",
+  "gate": {
+    "strategy": "product",
+    "min_p0_coverage_pct": 100
+  },
+  "lifecycle": "connect",
+  "browsers": ["chromium"],
+  "viewports": [{ "width": 1280, "height": 720 }]
+}

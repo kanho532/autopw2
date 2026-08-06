@@ -106,6 +106,26 @@ export class RunStorage {
   artifactPath(runId: string, name: string): string { return this.safePath(runId, path.join("artifacts", name)); }
   readArtifact(runId: string, name: string): Buffer { return fs.readFileSync(this.safePath(runId, path.join("artifacts", name))); }
 
+  readArtifactRef(runId: string, ref: ArtifactRef): Buffer {
+    const prefix = "art_" + runId.slice(4, 12) + "_";
+    if (!ref || typeof ref.handle !== "string" || !ref.handle.startsWith(prefix) || !/^art_[A-Za-z0-9_.-]+$/.test(ref.handle)) {
+      throw Object.assign(new Error("artifact reference is not bound to this run"), { code: "ARTIFACT_HANDLE_INVALID" });
+    }
+    const name = ref.handle.slice(prefix.length);
+    if (!name || path.basename(name) !== name || (ref.kind && name !== ref.kind)) {
+      throw Object.assign(new Error("artifact reference kind does not match handle"), { code: "ARTIFACT_HANDLE_INVALID" });
+    }
+    const target = this.artifactPath(runId, name);
+    if (!fs.existsSync(target)) throw Object.assign(new Error("artifact has expired or is unavailable"), { code: "RESULT_EXPIRED" });
+    return fs.readFileSync(target);
+  }
+
+  readEvents(runId: string, limit = 20): RunEvent[] {
+    const file = this.safePath(runId, "events.jsonl");
+    if (!fs.existsSync(file)) return [];
+    return fs.readFileSync(file, "utf8").split("\n").filter(Boolean).slice(-Math.max(1, limit)).map((line) => JSON.parse(line) as RunEvent);
+  }
+
   private safePath(runId: string, name: string): string {
     const base = path.resolve(this.runDir(runId));
     const target = path.resolve(base, name);

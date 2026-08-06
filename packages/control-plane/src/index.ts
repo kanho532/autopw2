@@ -8,7 +8,7 @@ import path from "node:path";
 import { Buffer } from "node:buffer";
 import type { OperationRegistry, OperationRecord } from "@autopw/operation-registry";
 import type { FixtureWorker } from "@autopw/worker";
-import { assertNoSecrets, SecurityPolicyEngine, resolveAuthorizedPath, type HostContextLike } from "@autopw/security";
+import { assertNoSecrets, SecureArtifactService, SecurityPolicyEngine, resolveAuthorizedPath, type HostContextLike } from "@autopw/security";
 
 type JsonObject = Record<string, any>;
 interface ToolContract { name: string; input_schema: JsonObject; result_union: JsonObject[]; creates_operation: boolean; }
@@ -27,6 +27,7 @@ export class ControlPlane {
   readonly maxBytes = 524288;
   readonly schemasDir: string;
   readonly security = new SecurityPolicyEngine();
+  readonly artifacts = new SecureArtifactService();
 
   constructor({ schemasDir, toolsDir, hostContexts, operationRegistry, worker, logger }: {
     schemasDir: string; toolsDir: string; hostContexts?: Record<string, HostContextEntry>;
@@ -179,12 +180,14 @@ export class ControlPlane {
         if (operation.workspace_id !== String(request.workspace_id)) return err("OPERATION_FORBIDDEN", "operation not bound to this workspace");
         if (toolName === "get_operation_status") return ok({ operation_id: operation.operation_id, status: operation.status, label: operation.status.toLowerCase(), poll_after_ms: 2000 });
         if (operation.status !== "COMPLETED") return notReady({ operation_id: operation.operation_id, poll_after_ms: 2000 });
-        return ok({ operation_id: operation.operation_id, result_ref: operation.result_ref || { handle: "art_preview", kind: "cdd.json" }, summary: operation.result_summary || {} });
+        const summary = operation.result_summary || {};
+        return ok({ operation_id: operation.operation_id, result_ref: operation.result_ref || { handle: "art_preview", kind: "cdd.json" }, summary, pagination: pageMeta(Number(request.page || 1), Number(request.page_size || 20), Number(summary.skeleton_count || 0)) });
       }
       if (toolName === "get_run_status") {
         const run = this.worker.getRun(String(request.run_id));
         if (!run || run.workspace_id !== String(request.workspace_id)) return err("RUN_FORBIDDEN", "handle not bound to this workspace");
-        const status: JsonObject = { run_id: run.run_id, phase: run.phase, run_status: run.run_status, progress_pct: run.progress_pct, next_action: run.next_action, poll_after_ms: 2000, stale: false, interrupted: run.run_status === "INTERRUPTED" };
+        const cases = run.cases || [];
+        const status: JsonObject = { run_id: run.run_id, phase: run.phase, run_status: run.run_status, progress_pct: run.progress_pct, counts: progressCounts(cases), by_tier: groupedCounts(cases, ["effective_tier", "tier"]), by_batch: groupedCounts(cases, ["batch_id"]), next_action: run.next_action, poll_after_ms: isTerminalRun(run) ? 0 : 2000, stale: run.run_status === "INTERRUPTED", interrupted: run.run_status === "INTERRUPTED", recent_events: this.worker.readEvents(run.run_id, 5) };
         if (run.audit_status) status.audit_status = run.audit_status;
         if (run.gate) status.gate = run.gate;
         return ok(status);
@@ -194,12 +197,18 @@ export class ControlPlane {
         if (!run || run.workspace_id !== String(request.workspace_id)) return err("RUN_FORBIDDEN", "handle not bound to this workspace");
         if (run.phase !== "GATED" && run.run_status !== "FAILED") return notReady({ run_id: run.run_id, poll_after_ms: 2000 });
         if (run.run_status === "FAILED") return failed({ run_id: run.run_id, fatal_class: run.fatal_class || "STATE_CORRUPTED", failure_ref: { handle: "art_failure", kind: "failure.json" } });
-        return ok({ run_id: run.run_id, gate: run.gate, audit_status: run.audit_status, results_ref: run.results_ref || { handle: "art_results", kind: "results.json" }, report_ref: run.report_ref || { handle: "art_report", kind: "report.md" }, gate_summary: run.gate_summary || {} });
+        const allIssues = run.results_ref ? this.readArtifactIssues(run) : [];
+        const pageResult = pageItems(allIssues, request.page, request.page_size);
+        return ok({ run_id: run.run_id, gate: run.gate, audit_status: run.audit_status, results_ref: run.results_ref || { handle: "art_results", kind: "results.json" }, report_ref: run.report_ref || { handle: "art_report", kind: "report.md" }, gate_summary: run.gate_summary || {}, issues: pageResult.items, pagination: pageResult.pagination });
       }
       if (toolName === "explain_run") {
         const run = this.worker.getRun(String(request.run_id));
         if (!run || run.workspace_id !== String(request.workspace_id)) return err("RUN_FORBIDDEN", "handle not bound to this workspace");
-        const explanation: JsonObject = { run_id: run.run_id, cases: run.cases || [], evidence_refs: run.evidence_refs || [] };
+        const allCases = (run.cases || []).filter((item) => !request.focus_case_id || item.case_id === request.focus_case_id);
+        if (request.focus_case_id && allCases.length === 0) return err("CASE_NOT_FOUND", "focus_case_id is not present in this run");
+        const pageResult = pageItems(allCases, request.page, request.page_size);
+        const evidenceRefs = run.evidence_refs || [];
+        const explanation: JsonObject = { run_id: run.run_id, cases: pageResult.items, evidence_refs: evidenceRefs, pagination: pageResult.pagination, gate_summary: run.gate_summary || {} };
         if (run.gate) explanation.gate = run.gate;
         if (run.audit_status) explanation.audit_status = run.audit_status;
         return ok(explanation);
@@ -212,6 +221,19 @@ export class ControlPlane {
   }
 
   private _truncate(value: JsonObject): JsonObject { return Buffer.byteLength(JSON.stringify(value), "utf8") <= this.maxBytes ? value : err("RESPONSE_TOO_LARGE", "response exceeds max bytes; use pagination"); }
+
+  private readArtifactIssues(run: { run_id: string; workspace_id: string; results_ref?: { handle: string; kind: string } }): JsonObject[] {
+    if (!run.results_ref) return [];
+    this.artifacts.authorizeRead({ requestedWorkspaceId: run.workspace_id, runWorkspaceId: run.workspace_id, handle: run.results_ref.handle, kind: run.results_ref.kind });
+    try {
+      const parsed = JSON.parse(this.worker.readArtifact(run.run_id, run.results_ref).toString("utf8")) as JsonObject;
+      return Array.isArray(parsed.issues) ? parsed.issues.filter(isRecord) : [];
+    } catch (error) {
+      const value = error as Error & { code?: string };
+      if (value.code === "RESULT_EXPIRED") throw error;
+      return [];
+    }
+  }
 }
 
 interface ErrorObject { instancePath: string; message?: string; }
@@ -221,3 +243,19 @@ function ok(payload: JsonObject): JsonObject { return result("ok", payload); }
 function notReady(payload: JsonObject): JsonObject { return result("not_ready", payload); }
 function failed(payload: JsonObject): JsonObject { return result("failed", payload); }
 function err(code: string, message: string, details?: JsonObject): JsonObject { return { kind: "error", schema_version: "2.1", error: { code, message, ...(details ? { details } : {}) }, retryable: false }; }
+function isTerminalRun(run: { phase: string; run_status: string }): boolean { return run.phase === "GATED" || run.run_status === "FAILED" || run.run_status === "COMPLETED"; }
+function progressCounts(items: JsonObject[]): JsonObject {
+  const terminal = new Set(["PASSED", "FAILED", "FLAKY", "BLOCKED", "INFRA_BLOCKED"]);
+  return { planned: items.length, started: items.filter((item) => item.status && item.status !== "NOT_RUN").length, terminal: items.filter((item) => terminal.has(String(item.status))).length };
+}
+function groupedCounts(items: JsonObject[], keys: string[]): JsonObject {
+  const result: JsonObject = {};
+  for (const item of items) { const key = keys.map((name) => item[name]).find((value) => value !== undefined && value !== null) || "unknown"; const bucket = result[String(key)] || { planned: 0, started: 0, terminal: 0 }; const counts = progressCounts([item]); bucket.planned += counts.planned; bucket.started += counts.started; bucket.terminal += counts.terminal; result[String(key)] = bucket; }
+  return result;
+}
+function pageItems(items: JsonObject[], requestedPage: unknown, requestedSize: unknown): { items: JsonObject[]; pagination: JsonObject } {
+  const page = Math.max(1, Number(requestedPage || 1)); const pageSize = Math.min(100, Math.max(1, Number(requestedSize || 20))); const totalItems = items.length; const offset = (page - 1) * pageSize;
+  return { items: items.slice(offset, offset + pageSize), pagination: pageMeta(page, pageSize, totalItems) };
+}
+function pageMeta(page: number, pageSize: number, totalItems: number): JsonObject { const totalPages = totalItems === 0 ? 0 : Math.ceil(totalItems / pageSize); return { page, page_size: pageSize, total_items: totalItems, total_pages: totalPages, has_more: totalPages > page, next_page: totalPages > page ? page + 1 : null }; }
+function isRecord(value: unknown): value is JsonObject { return Boolean(value) && typeof value === "object" && !Array.isArray(value); }

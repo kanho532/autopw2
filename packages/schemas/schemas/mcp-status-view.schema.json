@@ -31,6 +31,43 @@
       "minimum": 0,
       "maximum": 100
     },
+    "counts": {
+      "type": "object",
+      "properties": {
+        "planned": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "started": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "terminal": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "planned",
+        "started",
+        "terminal"
+      ],
+      "additionalProperties": false
+    },
+    "by_tier": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "by_batch": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
     "next_action": {
       "type": "string",
       "description": "Recommended next action for the agent"

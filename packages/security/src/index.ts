@@ -125,9 +125,17 @@ export class AdapterSandbox {
 }
 
 export class SecureArtifactService {
-  authorizeRead({ requestedWorkspaceId, runWorkspaceId, handle }: { requestedWorkspaceId: string; runWorkspaceId: string; handle: string }): void {
+  authorizeRead({ requestedWorkspaceId, runWorkspaceId, handle, kind }: { requestedWorkspaceId: string; runWorkspaceId: string; handle: string; kind?: string }): void {
     if (requestedWorkspaceId !== runWorkspaceId) throw securityError("ARTIFACT_FORBIDDEN", "artifact is not bound to this workspace");
     if (!/^art_[A-Za-z0-9_.-]+$/.test(handle) || handle.includes("..") || path.isAbsolute(handle)) throw securityError("ARTIFACT_HANDLE_INVALID", "artifact handle is not safe");
+    if (kind && this.resolveArtifactName({ handle, kind }) === undefined) throw securityError("ARTIFACT_HANDLE_INVALID", "artifact kind does not match handle");
+  }
+  resolveArtifactName({ handle, kind }: { handle: string; kind: string }): string | undefined {
+    if (!/^art_[A-Za-z0-9_.-]+$/.test(handle) || handle.includes("..") || path.isAbsolute(handle)) return undefined;
+    const marker = handle.indexOf("_", 4);
+    if (marker < 0) return undefined;
+    const name = handle.slice(marker + 1);
+    return name && path.basename(name) === name && name === kind ? name : undefined;
   }
 }
 

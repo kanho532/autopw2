@@ -19,6 +19,7 @@ export interface Harness {
   server: McpServer;
   dataRoot: string;
   hosts: Record<string, { mcp_host_context: JsonObject }>;
+  progress: JsonObject[];
   cleanup(): Promise<void>;
 }
 
@@ -64,10 +65,11 @@ export async function newHarness({ retention, budgets, stepMs, fixtureVariant, d
   const dataRoot = requestedDataRoot || path.join(root, ".autopw", "test-" + crypto.randomBytes(6).toString("hex"));
   fs.mkdirSync(dataRoot, { recursive: true });
   const hosts = { ws_demo: HERE_TRUSTED, ws_pr: HERE_UNTRUSTED_PR };
-  const server = new McpServer({ root, dataRoot, retention, budgets, stepMs, fixtureVariant, logger });
+  const progress: JsonObject[] = [];
+  const server = new McpServer({ root, dataRoot, retention, budgets, stepMs, fixtureVariant, logger, progressSink: (event) => progress.push(event as unknown as JsonObject) });
   for (const [workspace, context] of Object.entries(hosts)) server.registerHostContext(workspace, context);
   server.start();
-  return { server, dataRoot, hosts, cleanup: async () => { await server.stop(); fs.rmSync(dataRoot, { recursive: true, force: true }); } };
+  return { server, dataRoot, hosts, progress, cleanup: async () => { await server.stop(); fs.rmSync(dataRoot, { recursive: true, force: true }); } };
 }
 
 export function call(server: McpServer, name: string, request: JsonObject): Promise<JsonObject> { return server.callTool(name, request); }

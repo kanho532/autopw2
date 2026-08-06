@@ -37,6 +37,16 @@ interface WorkerOptions {
   stepMs?: number;
   runtime?: AuditVerticalSlice;
   leasePolicy?: Partial<LeasePolicy>;
+  onProgress?: (event: ProgressNotification) => void;
+}
+
+export interface ProgressNotification {
+  notification_id: string;
+  run_id: string;
+  phase: string;
+  progress_pct: number;
+  next_action: string;
+  at: string;
 }
 
 interface QueueItem {
@@ -63,11 +73,12 @@ export class FixtureWorker {
   readonly runtime?: AuditVerticalSlice;
   readonly workerId: string;
   readonly leasePolicy: LeasePolicy;
+  readonly onProgress?: (event: ProgressNotification) => void;
   stopped = false;
   readonly crashedRuns = new Set<string>();
   readonly tick: () => Promise<void>;
 
-  constructor({ registry, budgets, logger, stepMs, runtime, leasePolicy }: WorkerOptions) {
+  constructor({ registry, budgets, logger, stepMs, runtime, leasePolicy, onProgress }: WorkerOptions) {
     this.registry = registry;
     this.budgets = Object.assign({ installation: 8, workspace: 4, global: 16, workspacePerRun: 2 }, budgets || {});
     this.log = logger || { info: () => {}, warn: () => {}, error: () => {} };
@@ -75,6 +86,7 @@ export class FixtureWorker {
     this.runtime = runtime;
     this.workerId = "fixture-worker-" + process.pid + "-" + crypto.randomBytes(4).toString("hex");
     this.leasePolicy = { ...DEFAULT_LEASE_POLICY, ...(leasePolicy || {}) };
+    this.onProgress = onProgress;
     if (this.leasePolicy.lease_ttl_ms < this.leasePolicy.heartbeat_interval_ms * this.leasePolicy.lease_safety_factor || this.leasePolicy.lease_safety_factor < 4 || this.leasePolicy.takeover_grace_ms < this.leasePolicy.heartbeat_interval_ms * 2) throw new Error("INVALID_LEASE_POLICY");
     ACTIVE_WORKER_IDS.add(this.workerId);
     this.tick = this._tick.bind(this);
@@ -143,6 +155,15 @@ export class FixtureWorker {
   }
 
   getRun(run_id: string): RunState | undefined { return this.runs.get(run_id); }
+
+  readArtifact(run_id: string, ref: { handle: string; kind: string }): Buffer {
+    if (!this.runtime) throw Object.assign(new Error("ARTIFACTS_UNAVAILABLE"), { code: "ARTIFACTS_UNAVAILABLE" });
+    return this.runtime.storage.readArtifactRef(run_id, ref);
+  }
+
+  readEvents(run_id: string, limit = 20): Array<Record<string, unknown>> {
+    return (this.runtime?.storage.readEvents(run_id, limit) || []) as unknown as Array<Record<string, unknown>>;
+  }
 
   inspectLease(run_id: string): RunLease | undefined { return this.runs.get(run_id)?.lease; }
 
@@ -333,6 +354,7 @@ export class FixtureWorker {
     run.state_version += 1;
     this._writeRunState(run);
     this.registry.updateRun(run, { operationStatus });
+    this.onProgress?.({ notification_id: run.run_id + ":" + run.state_version + ":" + run.phase, run_id: run.run_id, phase: run.phase, progress_pct: run.progress_pct, next_action: run.next_action, at: new Date().toISOString() });
   }
 
   private _writeRunState(run: RunState): void { if (this.runtime) this.runtime.storage.writeJson(run.run_id, "run_state.json", run); }

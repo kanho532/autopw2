@@ -6,7 +6,7 @@ import { ControlPlane } from "@autopw/control-plane";
 import { FixtureWorker } from "@autopw/worker";
 import { AuditVerticalSlice } from "@autopw/core";
 import type { FixtureVariant } from "@autopw/execution-fixture";
-import type { LeasePolicy } from "@autopw/worker";
+import type { LeasePolicy, ProgressNotification } from "@autopw/worker";
 import type { PlannerProviderOptions } from "@autopw/planner";
 
 type JsonObject = Record<string, any>;
@@ -34,6 +34,7 @@ export interface McpServerOptions {
   plannerConfig?: Partial<PlannerProviderOptions>;
   production?: boolean;
   logger?: Logger;
+  progressSink?: (event: ProgressNotification) => void;
 }
 
 export class McpServer {
@@ -47,9 +48,10 @@ export class McpServer {
   readonly auditRuntime: AuditVerticalSlice;
   readonly cp: ControlPlane;
   readonly log: Logger;
+  readonly progressListeners = new Set<(event: ProgressNotification) => void>();
   readonly minPollMs = 100;
 
-  constructor({ root = process.cwd(), dataRoot, hostContexts, retention, budgets, stepMs, fixtureVariant, leasePolicy, plannerConfig, production, logger }: McpServerOptions = {}) {
+  constructor({ root = process.cwd(), dataRoot, hostContexts, retention, budgets, stepMs, fixtureVariant, leasePolicy, plannerConfig, production, logger, progressSink }: McpServerOptions = {}) {
     this.root = path.resolve(root);
     this.dataRoot = path.resolve(dataRoot || path.join(this.root, ".autopw", "data"));
     this.schemasDir = path.join(this.root, "packages", "schemas", "schemas");
@@ -57,7 +59,8 @@ export class McpServer {
     this.retention = Object.assign({}, DEFAULT_RETENTION, retention || {});
     this.registry = new OperationRegistry({ dataRoot: this.dataRoot, retention: this.retention, logger });
     this.auditRuntime = new AuditVerticalSlice({ root: this.root, dataRoot: this.dataRoot, fixtureVariant, plannerConfig, production });
-    this.worker = new FixtureWorker({ registry: this.registry, budgets, stepMs, logger, runtime: this.auditRuntime, leasePolicy });
+    if (progressSink) this.progressListeners.add(progressSink);
+    this.worker = new FixtureWorker({ registry: this.registry, budgets, stepMs, logger, runtime: this.auditRuntime, leasePolicy, onProgress: (event) => { for (const listener of this.progressListeners) listener(event); } });
     this.cp = new ControlPlane({ schemasDir: this.schemasDir, toolsDir: this.toolsDir, hostContexts, operationRegistry: this.registry, worker: this.worker, logger });
     this.log = logger || { info: () => {}, warn: () => {}, error: () => {} };
   }
@@ -71,6 +74,7 @@ export class McpServer {
     this.log.info("mcp server restarted; " + this.registry.byId.size + " operations");
   }
   registerHostContext(workspace_id: string, ctx: { mcp_host_context: JsonObject }): void { this.cp.registerHostContext(workspace_id, ctx); }
+  subscribeProgress(listener: (event: ProgressNotification) => void): () => void { this.progressListeners.add(listener); return () => this.progressListeners.delete(listener); }
   serverInfo(): JsonObject { return this.cp.serverInfo(); }
   async callTool(name: string, request: JsonObject): Promise<JsonObject> {
     const startedAt = Date.now();

@@ -21,6 +21,20 @@
     },
     "results_ref": {
       "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/artifactRef"
+    },
+    "report_ref": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/artifactRef"
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
     }
   },
   "required": [

@@ -84,7 +84,9 @@ export class AuditVerticalSlice {
       const report = writeReport({ storage: this.storage, runId: run.run_id, gate: gate.gate, auditStatus: audit.audit_status, summary: audit.summary, issues: audit.issues, resultsRef: persistedResultsRef });
       commitPhase("REPORTED", 96, "poll get_run_status");
       commitPhase("GATED", 100, "get_run_result");
-      return { gate: gate.gate, audit_status: audit.audit_status, results_ref: persistedResultsRef, report_ref: report.reportRef, gate_summary: { ...audit.summary, reason: gate.reason, issues: audit.issues }, cases: execution.results.map((item) => ({ case_id: item.case_id, execution_id: item.execution_id, status: item.status, error: item.error, evidence_refs: item.evidence_refs })), evidence_refs: execution.results.flatMap((item) => item.evidence_refs) };
+      const batchByExecution = new Map(execution.manifest.instances.map((instance) => [String(instance.execution_id), String(instance.batch_id)]));
+      const tierByCase = new Map(compiled.plan.cases.map((item) => [item.case_id, item.effective_tier]));
+      return { gate: gate.gate, audit_status: audit.audit_status, results_ref: persistedResultsRef, report_ref: report.reportRef, gate_summary: { ...audit.summary, reason: gate.reason, issues: audit.issues }, cases: execution.results.map((item) => ({ case_id: item.case_id, execution_id: item.execution_id, status: item.status, tier: tierByCase.get(item.case_id) || String(request.tier || request.base_tier || "fast"), batch_id: batchByExecution.get(item.execution_id), error: item.error, evidence_refs: item.evidence_refs })), evidence_refs: execution.results.flatMap((item) => item.evidence_refs) };
     } finally { await target.close(); }
   }
 
