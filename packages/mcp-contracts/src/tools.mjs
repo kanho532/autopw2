@@ -69,6 +69,7 @@ export function buildToolContracts() {
       schema_version: VER(), client_request_id: CID(), workspace_id: WID(),
       project_subpath: { $ref: ref.def("projectSubpath") },
       profile_path: str("relative profile path"), base_tier: enumRef("baseTier"),
+      fixture_variant: { type: "string", enum: ["pass", "fail", "incomplete"] },
       matrix_budget: { type: "object", properties: { max_execution_instances: { type: "integer", minimum: LIMITS.matrixBudgetMaxExecutionInstances.min } }, additionalProperties: false },
       auth_scope_id: str("approved auth scope id reference"), lifecycle: enumRef("lifecycleMode")
     }, ["schema_version", "client_request_id", "workspace_id", "profile_path", "base_tier"]),

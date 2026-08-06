@@ -2,5 +2,9 @@
   "name": "@autopw/demo-target",
   "version": "2.1.0-rc5.mcp-first",
   "private": true,
-  "description": "Local demo target app for deterministic baseline runs (Phase 0 placeholder)."
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "description": "Local Demo Target for the M2 deterministic Chromium audit.",
+  "scripts": { "build": "tsc -p tsconfig.json", "start": "node dist/index.js" },
+  "dependencies": { "@autopw/execution-fixture": "2.1.0-rc5.mcp-first" }
 }

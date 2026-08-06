@@ -181,12 +181,12 @@ export class ControlPlane {
         if (!run || run.workspace_id !== String(request.workspace_id)) return err("RUN_FORBIDDEN", "handle not bound to this workspace");
         if (run.phase !== "GATED" && run.run_status !== "FAILED") return notReady({ run_id: run.run_id, poll_after_ms: 2000 });
         if (run.run_status === "FAILED") return failed({ run_id: run.run_id, fatal_class: run.fatal_class || "STATE_CORRUPTED", failure_ref: { handle: "art_failure", kind: "failure.json" } });
-        return ok({ run_id: run.run_id, gate: run.gate, audit_status: run.audit_status, results_ref: { handle: "art_results", kind: "results.json" }, report_ref: { handle: "art_report", kind: "report.md" }, gate_summary: {} });
+        return ok({ run_id: run.run_id, gate: run.gate, audit_status: run.audit_status, results_ref: run.results_ref || { handle: "art_results", kind: "results.json" }, report_ref: run.report_ref || { handle: "art_report", kind: "report.md" }, gate_summary: run.gate_summary || {} });
       }
       if (toolName === "explain_run") {
         const run = this.worker.getRun(String(request.run_id));
         if (!run || run.workspace_id !== String(request.workspace_id)) return err("RUN_FORBIDDEN", "handle not bound to this workspace");
-        const explanation: JsonObject = { run_id: run.run_id, cases: [], evidence_refs: [] };
+        const explanation: JsonObject = { run_id: run.run_id, cases: run.cases || [], evidence_refs: run.evidence_refs || [] };
         if (run.gate) explanation.gate = run.gate;
         if (run.audit_status) explanation.audit_status = run.audit_status;
         return ok(explanation);

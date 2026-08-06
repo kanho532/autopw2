@@ -13,18 +13,22 @@
   ],
   "scripts": {
     "verify:m0": "node tools/verify-m0.mjs",
-    "build:m1": "tsc -p packages/operation-registry/tsconfig.json && tsc -p packages/worker/tsconfig.json && tsc -p packages/control-plane/tsconfig.json && tsc -p packages/mcp-server/tsconfig.json && tsc -p apps/mcp-host-harness/tsconfig.json",
+    "build:m1": "tsc -p packages/run-storage/tsconfig.json && tsc -p packages/execution-fixture/tsconfig.json && tsc -p packages/compiler/tsconfig.json && tsc -p packages/execution/tsconfig.json && tsc -p packages/audit/tsconfig.json && tsc -p packages/gate/tsconfig.json && tsc -p packages/reporting/tsconfig.json && tsc -p packages/core/tsconfig.json && tsc -p packages/operation-registry/tsconfig.json && tsc -p packages/worker/tsconfig.json && tsc -p packages/control-plane/tsconfig.json && tsc -p packages/mcp-server/tsconfig.json && tsc -p apps/mcp-host-harness/tsconfig.json",
     "verify:m1": "npm run build:m1 && node tools/verify-m1.mjs",
+    "build:m2": "tsc -p packages/run-storage/tsconfig.json && tsc -p packages/execution-fixture/tsconfig.json && tsc -p packages/compiler/tsconfig.json && tsc -p packages/execution/tsconfig.json && tsc -p packages/audit/tsconfig.json && tsc -p packages/gate/tsconfig.json && tsc -p packages/reporting/tsconfig.json && tsc -p packages/core/tsconfig.json && tsc -p packages/operation-registry/tsconfig.json && tsc -p packages/worker/tsconfig.json && tsc -p packages/control-plane/tsconfig.json && tsc -p packages/mcp-server/tsconfig.json && tsc -p apps/mcp-host-harness/tsconfig.json && tsc -p apps/demo-target/tsconfig.json",
+    "verify:m2": "npm run verify:m1 && npm run build:m2 && node tools/verify-m2.mjs",
     "contract": "node tools/verify-m0.mjs --check contract",
     "schema:test": "node tools/verify-m0.mjs --check schema",
     "docs:check": "node tools/verify-m0.mjs --check docs",
     "build:types": "tsc -p packages/mcp-contracts/tsconfig.json --noEmit && tsc -p packages/schemas/tsconfig.json --noEmit"
   },
   "devDependencies": {
+    "@types/node": "^22.10.0",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
-    "@types/node": "^22.10.0",
-    "typescript": "^5.7.0",
-    "eslint": "^9.18.0"
+    "eslint": "^9.18.0",
+    "globals": "^14.0.0",
+    "playwright": "1.62.1",
+    "typescript": "^5.7.0"
   }
 }

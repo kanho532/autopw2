@@ -66,7 +66,11 @@ const runReq = {
 {
   const first = await newHarness({ retention: { operation_ttl_ms: 60_000, run_ttl_ms: 60_000, evidence_ttl_ms: 60_000, high_watermark: 1000, low_watermark: 100 }, stepMs: 4 });
   const created = await call(first.server, "run_audit", { ...runReq, client_request_id: "cr_persist_1" });
-  await sleep(400);
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    const running = await call(first.server, "get_run_status", { schema_version: "2.1", workspace_id: "ws_demo", run_id: created.run_handle });
+    if (running.kind === "ok" && running.phase === "GATED") break;
+    await sleep(100);
+  }
   first.server.stop();
   const second = await newHarness({ dataRoot: first.dataRoot, retention: { operation_ttl_ms: 60_000, run_ttl_ms: 60_000, evidence_ttl_ms: 60_000, high_watermark: 1000, low_watermark: 100 }, stepMs: 4 });
   const status = await call(second.server, "get_run_status", { schema_version: "2.1", workspace_id: "ws_demo", run_id: created.run_handle });

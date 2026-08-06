@@ -3,6 +3,7 @@
 import crypto from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { Logger, OperationRegistry, RunSnapshot } from "@autopw/operation-registry";
+import type { AuditVerticalSlice, VerticalResult } from "@autopw/core";
 
 const RUN_PREFIX = "run_";
 const PHASE_PATH = [
@@ -26,6 +27,7 @@ interface WorkerOptions {
   budgets?: Partial<{ installation: number; workspace: number; global: number; workspacePerRun: number }>;
   logger?: Logger;
   stepMs?: number;
+  runtime?: AuditVerticalSlice;
 }
 
 interface QueueItem {
@@ -47,14 +49,16 @@ export class FixtureWorker {
   readonly runningByRun = new Map<string, number>();
   readonly log: Logger;
   readonly stepMs: number;
+  readonly runtime?: AuditVerticalSlice;
   stopped = false;
   readonly tick: () => Promise<void>;
 
-  constructor({ registry, budgets, logger, stepMs }: WorkerOptions) {
+  constructor({ registry, budgets, logger, stepMs, runtime }: WorkerOptions) {
     this.registry = registry;
     this.budgets = Object.assign({ installation: 8, workspace: 4, global: 16, workspacePerRun: 2 }, budgets || {});
     this.log = logger || { info: () => {}, warn: () => {}, error: () => {} };
     this.stepMs = stepMs ?? 8;
+    this.runtime = runtime;
     this.tick = this._tick.bind(this);
     this._resyncFromRegistry();
   }
@@ -74,6 +78,12 @@ export class FixtureWorker {
         progress_pct: record.progress_pct || 0,
         next_action: record.next_action || "poll get_run_status",
         cancel_requested: Boolean(record.cancel_requested),
+        results_ref: record.results_ref,
+        report_ref: record.report_ref,
+        gate_summary: record.gate_summary,
+        evidence_refs: record.evidence_refs,
+        cases: record.cases,
+        audit_summary: record.audit_summary,
         leased_by: process.pid,
         lease_owner: "fixture-worker"
       };
@@ -140,6 +150,38 @@ export class FixtureWorker {
   private async _run(operation_id: string, kind: WorkerKind, request: Request, toolName?: ToolName): Promise<void> {
     const operation = this.registry.get(operation_id);
     if (!operation) return;
+    if (this.runtime && toolName === "run_audit") {
+      const run = this.runs.get(operation.run_id || "");
+      if (!run) { this.registry.update(operation_id, (record) => { record.status = "FAILED"; return record; }); return; }
+      try {
+        const result: VerticalResult = await this.runtime.execute({
+          run,
+          request,
+          onPhase: (phase, progress, nextAction) => { if (run.cancel_requested) return; run.phase = phase; run.progress_pct = progress; run.next_action = nextAction; this._persistRun(run, phase === "GATED" ? "COMPLETED" : "RUNNING"); }
+        });
+        if (run.cancel_requested) return;
+        run.run_status = "COMPLETED";
+        run.phase = "GATED";
+        run.audit_status = result.audit_status;
+        run.gate = result.gate;
+        run.progress_pct = 100;
+        run.next_action = "get_run_result";
+        run.results_ref = result.results_ref;
+        run.report_ref = result.report_ref;
+        run.gate_summary = result.gate_summary;
+        run.cases = result.cases;
+        run.evidence_refs = result.evidence_refs;
+        run.audit_summary = { audit_status: result.audit_status };
+        this._persistRun(run, "COMPLETED");
+      } catch (error) {
+        this.log.error(error);
+        run.run_status = "FAILED";
+        run.fatal_class = "STATE_CORRUPTED";
+        run.next_action = "inspect failure artifact";
+        this._persistRun(run, "FAILED");
+      }
+      return;
+    }
     if (toolName === "derive_coverage" || kind === "preview") {
       await sleep(this.stepMs * 2);
       this.registry.update(operation_id, (record) => {
@@ -212,7 +254,7 @@ export class FixtureWorker {
     this._persistRun(run, "COMPLETED");
   }
 
-  private _persistRun(run: RunState, operationStatus: "RUNNING" | "COMPLETED"): void {
+  private _persistRun(run: RunState, operationStatus: "RUNNING" | "COMPLETED" | "FAILED"): void {
     this.registry.updateRun(run, { operationStatus });
   }
 
@@ -223,7 +265,7 @@ export class FixtureWorker {
     run.phase = "TERMINALIZING";
     run.next_action = "finalize cancellation";
     this._persistRun(run, "RUNNING");
-    if (!this.running.has(run.operation_id)) this._finalizeCancelled(run);
+    if (!this.running.has(run.operation_id) || this.runtime) this._finalizeCancelled(run);
     return true;
   }
 

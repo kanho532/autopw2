@@ -29,6 +29,14 @@
       "base_tier": {
         "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/enum/baseTier"
       },
+      "fixture_variant": {
+        "type": "string",
+        "enum": [
+          "pass",
+          "fail",
+          "incomplete"
+        ]
+      },
       "matrix_budget": {
         "type": "object",
         "properties": {

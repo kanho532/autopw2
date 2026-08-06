@@ -11,6 +11,8 @@ export interface Logger {
   error(message: unknown): void;
 }
 
+export interface ArtifactSnapshot { handle: string; kind: string; size_bytes?: number; }
+
 export interface RetentionPolicy {
   operation_ttl_ms: number;
   run_ttl_ms: number;
@@ -46,6 +48,12 @@ export interface OperationRecord {
   next_action?: string;
   cancel_requested?: boolean;
   result_summary?: Record<string, unknown>;
+  results_ref?: ArtifactSnapshot;
+  report_ref?: ArtifactSnapshot;
+  gate_summary?: Record<string, unknown>;
+  evidence_refs?: ArtifactSnapshot[];
+  cases?: Record<string, unknown>[];
+  audit_summary?: Record<string, unknown>;
   [key: string]: unknown;
 }
 
@@ -61,6 +69,12 @@ export interface RunSnapshot {
   progress_pct: number;
   next_action: string;
   cancel_requested?: boolean;
+  results_ref?: ArtifactSnapshot;
+  report_ref?: ArtifactSnapshot;
+  gate_summary?: Record<string, unknown>;
+  evidence_refs?: ArtifactSnapshot[];
+  cases?: Record<string, unknown>[];
+  audit_summary?: Record<string, unknown>;
 }
 
 interface CreateInput {
@@ -200,6 +214,12 @@ export class OperationRegistry {
       record.audit_status = run.audit_status; record.gate = run.gate; record.fatal_class = run.fatal_class;
       record.progress_pct = run.progress_pct; record.next_action = run.next_action;
       record.cancel_requested = Boolean(run.cancel_requested);
+      record.results_ref = run.results_ref;
+      record.report_ref = run.report_ref;
+      record.gate_summary = run.gate_summary;
+      record.evidence_refs = run.evidence_refs;
+      record.cases = run.cases;
+      record.audit_summary = run.audit_summary;
       if (operationStatus) record.status = operationStatus;
       return record;
     });

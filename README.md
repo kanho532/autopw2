@@ -2,14 +2,16 @@
 
 AutoPW is a Profile-driven Web quality audit engine delivered as a Codex local MCP plugin. The MCP Server is the sole primary public entry; the maintenance CLI and internal Core API are not the audit path.
 
-This repository is at **Phase 0 (Milestone M0: MCP Contract Frozen)**. No implementation code runs yet; this milestone freezes the public Tool Schema Bundle, the persistent Data Schema Bundle, the Host Context contract, the state machine and the security/retention/threat/ADR baselines that every later milestone must satisfy.
+This repository has completed **M2 (MCP Audit Vertical Slice)**. M0 freezes the public contracts; M1 provides the durable MCP Control Plane; M2 runs a deterministic Chromium audit through MCP and produces evidence, reports and a Gate.
 
-## Run the M0 acceptance gate
+## Run the acceptance gates
 ```bash
 npm install
 npm run verify:m0
+npm run verify:m1
+npm run verify:m2
 ```
-`verify:m0` returns 0 only when all mandatory M0 checks pass. Subsets: `npm run contract`, `npm run schema:test`, `npm run docs:check`.
+`verify:m2` includes the M1 and M2 acceptance gates. M2 installs and uses the pinned Playwright Chromium fixture.
 
 ## Layout
 - `packages/schemas` — Draft 2020-12 JSON Schema bundle (single-source enums + limits + common $defs + 39 persistents)

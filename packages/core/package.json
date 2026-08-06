@@ -3,6 +3,9 @@
   "version": "2.1.0-rc5.mcp-first",
   "private": true,
   "type": "module",
-  "main": "src/index.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "dependencies": { "@autopw/audit": "2.1.0-rc5.mcp-first", "@autopw/compiler": "2.1.0-rc5.mcp-first", "@autopw/execution": "2.1.0-rc5.mcp-first", "@autopw/execution-fixture": "2.1.0-rc5.mcp-first", "@autopw/gate": "2.1.0-rc5.mcp-first", "@autopw/operation-registry": "2.1.0-rc5.mcp-first", "@autopw/reporting": "2.1.0-rc5.mcp-first", "@autopw/run-storage": "2.1.0-rc5.mcp-first" },
   "description": "AutoPW core (Phase 0 stub — not implemented in M0)."
 }
