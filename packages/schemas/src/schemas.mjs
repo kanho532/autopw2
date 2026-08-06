@@ -80,11 +80,12 @@ export function buildSchemas() {
   S["seed-result"] = obj("seed-result", "SEED_RESOLVED result", { result: { type: "string", enum: ["APPLIED", "SKIPPED"] }, reset_capable: { type: "boolean" }, idempotent: { type: "boolean" }, at: TS() }, ["result", "reset_capable", "idempotent", "at"]);
   S["discovery"] = obj("discovery", "Discovery output", {
     schema_version: VER(), observations: arr({ type: "object", additionalProperties: true }), candidates: arr({ type: "object", additionalProperties: true }),
-    scenario_observations: arr({ type: "object", properties: { feature_id: ID("featureId"), scenario: enumRef("scenario"), observed: { type: "boolean" }, blocker: { type: "boolean" } }, required: ["feature_id", "scenario", "observed"], additionalProperties: false })
+    scenario_observations: arr({ type: "object", properties: { feature_id: ID("featureId"), scenario: enumRef("scenario"), observed: { type: "boolean" }, blocker: { type: "boolean" }, priority: enumRef("priority"), reason: str("objective blocker reason") }, required: ["feature_id", "scenario", "observed"], additionalProperties: false }),
+    budget: { type: "object", additionalProperties: true }, network: { type: "object", additionalProperties: true }, metrics: { type: "object", additionalProperties: true }
   }, ["schema_version", "observations", "candidates", "scenario_observations"]);
   S["derivation"] = obj("derivation", "Coverage derivation", {
-    schema_version: VER(), skeleton: arr({ type: "object", properties: { case_id: ID("caseId"), feature_id: ID("featureId"), scenario: enumRef("scenario"), effective_tier: enumRef("baseTier"), matrix_cell: str(""), blocked: { type: "boolean" } }, required: ["case_id", "feature_id", "scenario", "effective_tier"], additionalProperties: false }),
-    matrix: arr({ type: "object", additionalProperties: true }), p0_required_total: { type: "integer", minimum: 0 }, p0_coverage_pct: { type: ["number", "null"], minimum: 0, maximum: 100 }
+    schema_version: VER(), skeleton: arr({ type: "object", properties: { case_id: ID("caseId"), feature_id: ID("featureId"), scenario: enumRef("scenario"), priority: enumRef("priority"), effective_tier: enumRef("baseTier"), status: { type: "string", enum: ["PLANNED", "BLOCKED", "NOT_APPLICABLE", "TIER_SKIPPED"] }, matrix_cell: str(""), blocked: { type: "boolean" }, reason: str("objective blocker reason") }, required: ["case_id", "feature_id", "scenario", "effective_tier"], additionalProperties: false }),
+    matrix: arr({ type: "object", additionalProperties: true }), p0_required_total: { type: "integer", minimum: 0 }, p0_coverage_pct: { type: ["number", "null"], minimum: 0, maximum: 100 }, input_versions: { type: "object", additionalProperties: { type: "string" } }, metrics: { type: "object", additionalProperties: true }, projection: { type: "object", additionalProperties: true }, cdd: { type: "object", additionalProperties: true }
   }, ["schema_version", "skeleton"]);
   S["planner-input"] = obj("planner-input", "Planner input", {
     schemaVersion: VER(), skeletons: arr({ type: "object", additionalProperties: true }), candidates: { type: "object", additionalProperties: true },

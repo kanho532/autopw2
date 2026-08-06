@@ -21,8 +21,20 @@
           "scenario": {
             "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/enum/scenario"
           },
+          "priority": {
+            "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/enum/priority"
+          },
           "effective_tier": {
             "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/enum/baseTier"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PLANNED",
+              "BLOCKED",
+              "NOT_APPLICABLE",
+              "TIER_SKIPPED"
+            ]
           },
           "matrix_cell": {
             "type": "string",
@@ -30,6 +42,10 @@
           },
           "blocked": {
             "type": "boolean"
+          },
+          "reason": {
+            "type": "string",
+            "description": "objective blocker reason"
           }
         },
         "required": [
@@ -59,6 +75,24 @@
       ],
       "minimum": 0,
       "maximum": 100
+    },
+    "input_versions": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "projection": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "cdd": {
+      "type": "object",
+      "additionalProperties": true
     }
   },
   "required": [

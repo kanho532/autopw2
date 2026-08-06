@@ -120,6 +120,23 @@ export class ControlPlane {
     const tool = auth.tool;
     if (!tool.creates_operation) return this._handleQuery(toolName, request);
 
+    if (toolName === "derive_coverage" || toolName === "run_audit") {
+      try {
+        const hostMax = Number(auth.hostContext.max_execution_instances_per_run || 100);
+        const preview = await this.worker.preflight({ ...request, __host_max_execution_instances: hostMax });
+        if (preview.derivation.projection.projected_execution_instances > preview.derivation.projection.effective_budget) {
+          return err("MATRIX_BUDGET_EXCEEDED", "projected execution instances exceed effective matrix budget", {
+            projected_execution_instances: preview.derivation.projection.projected_execution_instances,
+            effective_budget: preview.derivation.projection.effective_budget,
+            projection: preview.derivation.projection.dimensions,
+            narrowing_suggestions: preview.derivation.projection.narrowing_suggestions
+          });
+        }
+      } catch (error) {
+        return err("PREFLIGHT_FAILED", error instanceof Error ? error.message : String(error));
+      }
+    }
+
     const targetTools = ["resume_run", "cancel_run", "cleanup_run"];
     if (targetTools.includes(toolName)) {
       const target = this.worker.getRun(String(request.run_id));
@@ -207,4 +224,4 @@ function result(kind: string, payload: JsonObject): JsonObject { return { kind, 
 function ok(payload: JsonObject): JsonObject { return result("ok", payload); }
 function notReady(payload: JsonObject): JsonObject { return result("not_ready", payload); }
 function failed(payload: JsonObject): JsonObject { return result("failed", payload); }
-function err(code: string, message: string): JsonObject { return { kind: "error", schema_version: "2.1", error: { code, message }, retryable: false }; }
+function err(code: string, message: string, details?: JsonObject): JsonObject { return { kind: "error", schema_version: "2.1", error: { code, message, ...(details ? { details } : {}) }, retryable: false }; }

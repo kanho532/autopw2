@@ -7,9 +7,12 @@ import { evaluateGate } from "@autopw/gate";
 import { writeReport } from "@autopw/reporting";
 import { RunStorage, type ArtifactRef } from "@autopw/run-storage";
 import type { RunSnapshot } from "@autopw/operation-registry";
+import { discover } from "@autopw/discovery";
+import { analyzeDiff, deriveCoverage, digest, type DerivationResult, type DiffResult, type Tier } from "@autopw/derivation";
 
 export interface VerticalRun extends RunSnapshot { phase: string; }
 export interface VerticalResult { gate: "incomplete" | "infra" | "fail" | "unstable" | "pass"; audit_status: "COMPLETE" | "INCOMPLETE"; results_ref: ArtifactRef; report_ref: ArtifactRef; gate_summary: Record<string, unknown>; cases: Record<string, unknown>[]; evidence_refs: ArtifactRef[]; }
+export interface CoveragePreview { discovery: Record<string, unknown>; derivation: DerivationResult; diff: DiffResult; result_ref?: ArtifactRef; summary: Record<string, unknown>; }
 type PhaseCallback = (phase: string, progress: number, nextAction: string) => void;
 
 export class AuditVerticalSlice {
@@ -39,7 +42,9 @@ export class AuditVerticalSlice {
       commitPhase("SEED_RESOLVED", 15, "poll get_run_status");
       this.storage.writeJson(run.run_id, "seed.json", { result: "SKIPPED", reset_capable: true, idempotent: true, at: new Date().toISOString() });
       commitPhase("DISCOVERED", 24, "poll get_run_status");
-      this.storage.writeJson(run.run_id, "discovery.json", { schema_version: "2.1", observations: [{ kind: "fixture_target", value: "demo form" }], candidates: [{ id: "candidate_demo_form" }], scenario_observations: FIXTURE_PLAN.cases.map((item) => ({ feature_id: item.feature_id, scenario: item.scenario, observed: true, blocker: false })) });
+      const coverage = await this.deriveCoverage({ request, artifactId: run.run_id, targetUrl: target.baseUrl });
+      this.storage.writeJson(run.run_id, "discovery.json", coverage.discovery);
+      this.storage.writeJson(run.run_id, "derivation.json", coverage.derivation);
       commitPhase("COVERAGE_DERIVED", 30, "poll get_run_status");
       commitPhase("PLAN_FILLED", 36, "poll get_run_status");
       const compiled = compileFixturePlan(FIXTURE_PLAN);
@@ -67,6 +72,58 @@ export class AuditVerticalSlice {
       commitPhase("GATED", 100, "get_run_result");
       return { gate: gate.gate, audit_status: audit.audit_status, results_ref: persistedResultsRef, report_ref: report.reportRef, gate_summary: { ...audit.summary, reason: gate.reason, issues: audit.issues }, cases: execution.results.map((item) => ({ case_id: item.case_id, execution_id: item.execution_id, status: item.status, error: item.error, evidence_refs: item.evidence_refs })), evidence_refs: execution.results.flatMap((item) => item.evidence_refs) };
     } finally { await target.close(); }
+  }
+
+  async preview({ request, operationId }: { request: Record<string, unknown>; operationId: string }): Promise<CoveragePreview> {
+    const target = await startDemoTarget(this.variant(this.fixtureVariant));
+    try { return await this.deriveCoverage({ request, artifactId: operationId, targetUrl: target.baseUrl }); }
+    finally { await target.close(); }
+  }
+
+  async preflight({ request }: { request: Record<string, unknown> }): Promise<CoveragePreview> {
+    const target = await startDemoTarget(this.variant(this.fixtureVariant));
+    try { return await this.deriveCoverage({ request, targetUrl: target.baseUrl }); }
+    finally { await target.close(); }
+  }
+
+  private async deriveCoverage({ request, artifactId, targetUrl }: { request: Record<string, unknown>; artifactId?: string; targetUrl?: string }): Promise<CoveragePreview> {
+    const preflightStarted = Date.now();
+    const tier = String(request.tier || request.base_tier || "fast") as Tier;
+    const discovery = await discover({
+      root: this.root,
+      project_subpath: String(request.project_subpath || "."),
+      target_url: targetUrl,
+      budget: { max_depth: 6, max_files: 200, timeout_ms: 3000, allowed_origins: targetUrl ? [new URL(targetUrl).origin] : [] }
+    });
+    const diff = analyzeDiff({ diffRef: typeof request.diff_ref === "string" ? request.diff_ref : undefined, root: this.root });
+    const matrixBudget = typeof request.matrix_budget === "object" && request.matrix_budget ? Number((request.matrix_budget as Record<string, unknown>).max_execution_instances || 0) : 0;
+    const derivation = deriveCoverage({
+      discovery, tier, diff,
+      matrix: { profile_max_execution_instances: matrixBudget || undefined, host_max_execution_instances: Number(request.__host_max_execution_instances || 100) },
+      input_versions: {
+        workspace_digest: digest(this.root), profile_digest: digest(String(request.profile_path || "")),
+        route_map_digest: digest("default-route-map"), diff_digest: digest(String(request.diff_ref || "NOOP")),
+        auth_scope_id: String(request.auth_scope_id || "as_demo"), tier
+      }
+    });
+    const summary: Record<string, unknown> = {
+      skeleton_count: derivation.skeleton.length,
+      planned_count: derivation.skeleton.filter((item) => item.status === "PLANNED").length,
+      blocked_count: derivation.skeleton.filter((item) => item.status === "BLOCKED").length,
+      projected_execution_instances: derivation.projection.projected_execution_instances,
+      projection: derivation.projection.dimensions,
+      narrowing_suggestions: derivation.projection.narrowing_suggestions,
+      input_versions: derivation.input_versions,
+      timings: { preflight_ms: Date.now() - preflightStarted, discovery_wall_ms: discovery.metrics.discovery_wall_ms, derivation_cpu_ms: derivation.metrics.derivation_cpu_ms, serialization_ms: 0 }
+    };
+    let result_ref: ArtifactRef | undefined;
+    if (artifactId) {
+      const serializationStarted = Date.now();
+      const storageId = artifactId.startsWith("op_") ? "run_" + artifactId.slice(3) : artifactId;
+      result_ref = this.storage.writeArtifact(storageId, "cdd.json", "cdd.json", JSON.stringify({ discovery, derivation, diff, summary }, null, 2) + "\n");
+      (summary.timings as Record<string, unknown>).serialization_ms = Date.now() - serializationStarted;
+    }
+    return { discovery: discovery as unknown as Record<string, unknown>, derivation, diff, result_ref, summary };
   }
 
   private variant(value: FixtureVariant | undefined): FixtureVariant { return value === "fail" || value === "incomplete" ? value : "pass"; }

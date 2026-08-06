@@ -3,7 +3,7 @@
 import crypto from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { Logger, OperationRegistry, RunSnapshot } from "@autopw/operation-registry";
-import type { AuditVerticalSlice, VerticalResult } from "@autopw/core";
+import type { AuditVerticalSlice, CoveragePreview, VerticalResult } from "@autopw/core";
 
 const RUN_PREFIX = "run_";
 const PHASE_PATH = [
@@ -118,6 +118,11 @@ export class FixtureWorker {
 
   getRun(run_id: string): RunState | undefined { return this.runs.get(run_id); }
 
+  async preflight(request: Request): Promise<CoveragePreview> {
+    if (!this.runtime) throw new Error("M3_RUNTIME_NOT_CONFIGURED");
+    return this.runtime.preflight({ request });
+  }
+
   enqueue(operation_id: string, kind: WorkerKind, request: Request, toolName: ToolName = String(request.tool || "")): void {
     if (this.stopped || this.running.has(operation_id) || this.queue.some((item) => item.operation_id === operation_id)) return;
     this.queue.push({ operation_id, kind, request: request || {}, toolName });
@@ -195,10 +200,15 @@ export class FixtureWorker {
     }
     if (toolName === "derive_coverage" || kind === "preview") {
       await sleep(this.stepMs * 2);
+      const preview = this.runtime ? await this.runtime.preview({ request, operationId: operation_id }) : undefined;
+      // The retention sweeper may reclaim an expired preview while Discovery
+      // is still in flight. A late result must not recreate or mutate a
+      // deleted Operation record.
+      if (!this.registry.get(operation_id)) return;
       this.registry.update(operation_id, (record) => {
         record.status = "COMPLETED";
-        record.result_ref = { handle: "art_cdd_" + operation_id, kind: "cdd.json" };
-        record.result_summary = { skeleton_count: 12, blockers: 0, draft: "CDD Draft (fixture)" };
+        record.result_ref = (preview?.result_ref || { handle: "art_cdd_" + operation_id, kind: "cdd.json" }) as unknown as Record<string, unknown>;
+        record.result_summary = preview?.summary || { skeleton_count: 0, blockers: 0, draft: "CDD Draft" };
         return record;
       });
       return;
