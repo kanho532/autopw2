@@ -46,7 +46,7 @@ export class PlaywrightFixtureRunner {
     const execution_id = executionId(item.case_id);
     const context = await browser.newContext({ viewport: { width: 1280, height: 720 }, locale: "en-US", serviceWorkers: "block" });
     await context.route("**/*", async (route) => {
-      try { network.assertAllowed(route.request().url()); await route.continue(); }
+      try { await network.assertAllowedAsync(route.request().url()); await route.continue(); }
       catch { await route.abort("blockedbyclient"); }
     });
     const page = await context.newPage();

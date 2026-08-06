@@ -45,6 +45,13 @@
         },
         "policy_version": {
           "type": "string"
+        },
+        "allowed_origins": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Host-approved browser/network origins; exact origins are preferred, explicit localhost port patterns are fixture-only."
         }
       },
       "required": [

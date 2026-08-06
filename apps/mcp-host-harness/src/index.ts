@@ -26,14 +26,14 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../.
 const HERE_TRUSTED = {
   mcp_host_context: {
     workspace_authorization: { workspace_id: "ws_demo", workspace_realpath: root, deny_symlink_escape: true },
-    trust_mode: "trusted", auth_scope: { auth_scope_id: "as_demo", mode: "none", isolated: true },
+    trust_mode: "trusted", auth_scope: { auth_scope_id: "as_demo", mode: "none", isolated: true }, allowed_origins: ["http://127.0.0.1:*"],
     caller: "codex", policy_version: "1.0.0"
   }
 };
 const HERE_UNTRUSTED_PR = {
   mcp_host_context: {
     workspace_authorization: { workspace_id: "ws_pr", workspace_realpath: path.join(root, "fixtures"), deny_symlink_escape: true },
-    trust_mode: "untrusted_pr", auth_scope: { auth_scope_id: "as_oneshot", mode: "credentials", one_shot: true, isolated: true },
+    trust_mode: "untrusted_pr", auth_scope: { auth_scope_id: "as_oneshot", mode: "credentials", one_shot: true, isolated: true }, allowed_origins: ["http://127.0.0.1:*"],
     caller: "codex-ci", config_source: { base_revision: "origin/main", pr_head_allowed: false }, policy_version: "1.0.0"
   }
 };

@@ -27,7 +27,8 @@ export const HOST_CONTEXT_CONTRACT = {
         caller: { type: "string", description: "Caller identity" },
         session_id: { type: "string", description: "MCP session id (not a Run lifecycle boundary)" },
         installation_id: { type: "string" },
-        policy_version: { type: "string" }
+        policy_version: { type: "string" },
+        allowed_origins: { type: "array", items: { type: "string" }, description: "Host-approved browser/network origins; exact origins are preferred, explicit localhost port patterns are fixture-only." }
       },
       required: ["workspace_authorization", "trust_mode", "auth_scope", "caller"],
       additionalProperties: false

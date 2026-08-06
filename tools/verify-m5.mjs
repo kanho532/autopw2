@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { spawn } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { newHarness, call } from "../apps/mcp-host-harness/dist/index.js";
 
@@ -36,6 +37,17 @@ try {
   const loser = storage.compareAndSwapJson(runId, "run_state.json", 2, (value) => ({ ...value, lease: { state_version: 3 }, winner: "two" }));
   check("m5-cas-has-single-winner", winner?.winner === "one" && loser === undefined);
 } finally { fs.rmSync(casRoot, { recursive: true, force: true }); }
+
+const raceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "autopw-m5-cas-race-"));
+try {
+  const raceStorage = new RunStorage(raceRoot); const raceRun = "run_race";
+  raceStorage.writeJson(raceRun, "run_state.json", { run_id: raceRun, lease: { state_version: 1 } });
+  const storageUrl = pathToFileURL(path.join(root, "packages", "run-storage", "dist", "index.js")).href;
+  const raceScript = `import { RunStorage } from ${JSON.stringify(storageUrl)}; const storage = new RunStorage(process.argv[1]); const result = storage.compareAndSwapJson("run_race", "run_state.json", 1, (value) => ({ ...value, lease: { state_version: 2 }, winner: process.pid })); process.stdout.write(result ? "winner" : "loser");`;
+  const runChild = () => new Promise((resolve) => { const child = spawn(process.execPath, ["--input-type=module", "-e", raceScript, raceRoot], { stdio: ["ignore", "pipe", "pipe"] }); let output = ""; child.stdout.on("data", (chunk) => { output += chunk.toString(); }); child.on("close", (code) => resolve(code === 0 ? output : "error")); });
+  const outcomes = await Promise.all([runChild(), runChild()]);
+  check("m5-cross-process-cas-has-single-winner", outcomes.filter((value) => value === "winner").length === 1 && outcomes.filter((value) => value === "loser").length === 1, outcomes.join(","));
+} finally { fs.rmSync(raceRoot, { recursive: true, force: true }); }
 
 const harness = await newHarness({ stepMs: 4 });
 try {

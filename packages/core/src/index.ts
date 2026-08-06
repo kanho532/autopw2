@@ -70,7 +70,7 @@ export class AuditVerticalSlice {
       this.storage.writeJson(run.run_id, "suite-manifest.json", { digest: suiteDigest(compiled.source), forbidden_imports: false });
       commitPhase("SUITE_FROZEN", 54, "poll get_run_status");
       commitPhase("RUNNING", 60, "poll get_run_status");
-      const execution = await this.runner.run({ runId: run.run_id, baseUrl: target.baseUrl, allowedOrigins: [new URL(target.baseUrl).origin], plan: compiled.plan, variant, storage: this.storage });
+      const execution = await this.runner.run({ runId: run.run_id, baseUrl: target.baseUrl, allowedOrigins: this.resolvedAllowedOrigins(request), plan: compiled.plan, variant, storage: this.storage });
       commitPhase("EXECUTION_FINISHED", 78, "poll get_run_status");
       const audit = auditExecution(compiled.plan.cases.map((item) => item.case_id), execution.results);
       this.storage.writeJson(run.run_id, "completion-audit.json", audit);
@@ -110,11 +110,12 @@ export class AuditVerticalSlice {
   private async deriveCoverage({ request, artifactId, targetUrl }: { request: Record<string, unknown>; artifactId?: string; targetUrl?: string }): Promise<CoveragePreview> {
     const preflightStarted = Date.now();
     const tier = String(request.tier || request.base_tier || "fast") as Tier;
+    const allowedOrigins = this.resolvedAllowedOrigins(request);
     const discovery = await discover({
       root: this.root,
       project_subpath: String(request.project_subpath || "."),
       target_url: targetUrl,
-      budget: { max_depth: 6, max_files: 500, timeout_ms: 3000, allowed_origins: targetUrl ? [new URL(targetUrl).origin] : [] }
+      budget: { max_depth: 6, max_files: 500, timeout_ms: 3000, allowed_origins: allowedOrigins }
     });
     const sourceMappings = discovery.observations.filter((observation) => observation.kind === "source" && typeof observation.path === "string" && Array.isArray(observation.features)).map((observation) => ({ file_glob: String(observation.path), features: (observation.features as unknown[]).filter((feature): feature is string => typeof feature === "string") }));
     const diff = analyzeDiff({ diffRef: typeof request.diff_ref === "string" ? request.diff_ref : undefined, root: this.root, mappings: sourceMappings });
@@ -185,6 +186,13 @@ export class AuditVerticalSlice {
   }
 
   private variant(value: FixtureVariant | undefined): FixtureVariant { return value === "fail" || value === "incomplete" ? value : "pass"; }
+
+  private resolvedAllowedOrigins(request: Record<string, unknown>): string[] {
+    const snapshot = isRecord(request.__trust_snapshot) ? request.__trust_snapshot : undefined;
+    const origins = snapshot && Array.isArray(snapshot.allowed_origins) ? snapshot.allowed_origins.filter((origin): origin is string => typeof origin === "string") : [];
+    if (origins.length === 0) throw Object.assign(new Error("NETWORK_POLICY_EMPTY"), { code: "NETWORK_POLICY_EMPTY" });
+    return origins;
+  }
 }
 
 function plannerError(message: string): Error & { code: string } { return Object.assign(new Error(message), { code: "PLAN_DEFECT" }); }

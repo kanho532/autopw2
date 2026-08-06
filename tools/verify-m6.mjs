@@ -49,6 +49,10 @@ const network = new security.BrowserNetworkGuard(["http://127.0.0.1:4173"]);
 check("m6-network-allowlist-exact-origin", network.check("http://127.0.0.1:4173/health").allowed);
 check("m6-network-cross-origin-denied", !network.check("http://127.0.0.1:4174/health").allowed);
 check("m6-network-unsafe-scheme-denied", !network.check("javascript:alert(1)").allowed && !network.check("ws://127.0.0.1:4173/socket").allowed);
+check("m6-network-private-addresses-denied", !network.check("http://0.0.0.0:4173").allowed && !network.check("http://100.64.0.1:4173").allowed && !network.check("http://[::1]:4173").allowed);
+check("m6-network-explicit-ipv6-loopback-policy", new security.BrowserNetworkGuard(["http://[::1]:*"]).check("http://[::1]:4173").allowed);
+await network.assertAllowedAsync("http://127.0.0.1:4173/health");
+check("m6-network-async-resolution-guard", true);
 
 const sandbox = new security.AdapterSandbox({ roots: [base], allowedEnv: ["LANG"], allowedOrigins: ["http://127.0.0.1:4173"] });
 sandbox.validate({ cwd: base, env: { LANG: "C" }, command_id: "fixture:inspect", network_origins: ["http://127.0.0.1:4173"], timeout_ms: 1000, output_bytes: 10 });
@@ -89,8 +93,12 @@ try {
   check("m6-trust-snapshot-persisted", context.trust_mode === "trusted" && context.workspace_root === "<authorized>" && !JSON.stringify(context).includes(root));
   const evidenceManifest = JSON.parse(fs.readFileSync(path.join(harness.dataRoot, "runs", accepted.run_handle, "evidence-manifest.json"), "utf8"));
   check("m6-evidence-redaction-status-explicit", evidenceManifest.redacted === true && evidenceManifest.redaction_status === "COMPLETE");
+  const discovery = JSON.parse(fs.readFileSync(path.join(harness.dataRoot, "runs", accepted.run_handle, "discovery.json"), "utf8"));
+  check("m6-execution-uses-resolved-origin-policy", discovery.network.allowed_origins.includes("http://127.0.0.1:*") && status.phase === "GATED");
   const prManage = await call(harness.server, "run_audit", { ...request, client_request_id: "m6-pr-manage", workspace_id: "ws_pr", lifecycle: "manage", project_subpath: "." });
   check("m6-mcp-untrusted-pr-manage-denied", prManage.kind === "error" && prManage.error.code === "UNTRUSTED_MANAGE_DENIED");
+  const secret = await call(harness.server, "run_audit", { ...request, client_request_id: "m6-secret-input", profile_path: "token=plaintext" });
+  check("m6-mcp-secret-input-rejected", secret.kind === "error" && secret.error.code === "SECRET_IN_INPUT");
 } finally { await harness.cleanup(); }
 
 fs.rmSync(base, { recursive: true, force: true });

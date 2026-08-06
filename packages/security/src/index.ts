@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import dns from "node:dns";
 import net from "node:net";
 import path from "node:path";
 
@@ -42,6 +43,7 @@ export interface TrustResolution { policy: EffectiveSecurityPolicy; snapshot: Re
 
 const SECRET_KEY = /(?:password|passwd|token|secret|cookie|authorization|api[_-]?key|private[_-]?key|client[_-]?secret)/i;
 const SECRET_TEXT = /((?:bearer\s+)[A-Za-z0-9._~+/=-]+|(?:password|passwd|token|secret|cookie|authorization|api[_-]?key|private[_-]?key|client[_-]?secret)\s*[:=]\s*)[^\s,&]+/gi;
+const SECRET_VALUE = /(?:bearer\s+[A-Za-z0-9._~+/=-]+|(?:password|passwd|token|secret|cookie|authorization|api[_-]?key|private[_-]?key|client[_-]?secret)\s*[:=]\s*)[^\s,&]+/i;
 
 export class TrustResolver {
   resolve(host: HostContextLike, profile: ProfileSafetyInput = {}): TrustResolution {
@@ -59,9 +61,9 @@ export class TrustResolver {
           : profile.config_source === "fixed" && host.config_source?.fixed_path ? "fixed" : "base"
       : (profile.config_source === "head" ? "base" : profile.config_source || "fixed");
     if (host.trust_mode === "untrusted_pr" && profile.config_source === "head") throw securityError("UNTRUSTED_HEAD_CONFIG", "head configuration is not authoritative for untrusted_pr");
-    const hostOrigins = host.allowed_origins || [];
-    const profileOrigins = profile.allowed_origins || hostOrigins;
-    const allowedOrigins = hostOrigins.length === 0 ? [] : profileOrigins.filter((origin) => hostOrigins.includes(origin));
+    const hostOrigins = (host.allowed_origins || []).map(normalizeAllowedOrigin);
+    const profileOrigins = (profile.allowed_origins || hostOrigins).map(normalizeAllowedOrigin);
+    const allowedOrigins = hostOrigins.length === 0 ? [] : profileOrigins.filter((origin) => hostOrigins.some((hostOrigin) => originWithin(origin, hostOrigin)));
     const base = path.resolve(host.workspace_authorization.workspace_realpath);
     const roots = (profile.allowed_file_roots || ["."]).map((root) => resolveAuthorizedPath(base, root));
     const policy: EffectiveSecurityPolicy = { trust_mode: host.trust_mode, lifecycle, production, destructive_actions: destructive, auth_scope_id: host.auth_scope.auth_scope_id, config_source: source, allowed_origins: [...new Set(allowedOrigins)], allowed_file_roots: roots };
@@ -81,18 +83,29 @@ export class SecurityPolicyEngine extends TrustResolver {
 
 export class BrowserNetworkGuard {
   readonly allowedOrigins: Set<string>;
-  constructor(allowedOrigins: string[]) { this.allowedOrigins = new Set(allowedOrigins.map(normalizeOrigin)); }
+  constructor(allowedOrigins: string[]) { this.allowedOrigins = new Set(allowedOrigins.map(normalizeAllowedOrigin)); }
   check(value: string): { allowed: true; origin: string } | { allowed: false; code: "SAFETY_POLICY_VIOLATION"; reason: string } {
     let url: URL;
     try { url = new URL(value); } catch { return { allowed: false, code: "SAFETY_POLICY_VIOLATION", reason: "invalid URL" }; }
     if (url.protocol !== "http:" && url.protocol !== "https:") return { allowed: false, code: "SAFETY_POLICY_VIOLATION", reason: "URL scheme is not allowed" };
     if (url.username || url.password) return { allowed: false, code: "SAFETY_POLICY_VIOLATION", reason: "URL credentials are not allowed" };
-    if (!this.allowedOrigins.has(url.origin)) return { allowed: false, code: "SAFETY_POLICY_VIOLATION", reason: "origin is not allowed" };
+    if (![...this.allowedOrigins].some((origin) => originMatchesUrl(origin, url))) return { allowed: false, code: "SAFETY_POLICY_VIOLATION", reason: "origin is not allowed" };
     const address = net.isIP(url.hostname);
-    if (address === 4 && isUnsafeIpv4(url.hostname) && !this.allowedOrigins.has(url.origin)) return { allowed: false, code: "SAFETY_POLICY_VIOLATION", reason: "private network is not allowed" };
+    if ((address === 4 && isUnsafeIpv4(url.hostname)) || (address === 6 && isUnsafeIpv6(url.hostname))) {
+      if (!isExplicitLoopbackOrigin(url.hostname, this.allowedOrigins)) return { allowed: false, code: "SAFETY_POLICY_VIOLATION", reason: "private network is not allowed" };
+    }
     return { allowed: true, origin: url.origin };
   }
   assertAllowed(value: string): void { const result = this.check(value); if (!result.allowed) throw securityError(result.code, result.reason); }
+  async assertAllowedAsync(value: string): Promise<void> {
+    this.assertAllowed(value);
+    const url = new URL(value);
+    if (net.isIP(url.hostname) || url.hostname.toLowerCase() === "localhost") return;
+    let addresses: dns.LookupAddress[];
+    try { addresses = await dns.promises.lookup(url.hostname, { all: true, verbatim: true }); }
+    catch { throw securityError("SAFETY_POLICY_VIOLATION", "origin DNS could not be resolved safely"); }
+    if (addresses.some((address) => isUnsafeAddress(address.address))) throw securityError("SAFETY_POLICY_VIOLATION", "origin resolves to a private network");
+  }
 }
 
 export interface AdapterInvocation { cwd: string; env: Record<string, string | undefined>; command_id: string; network_origins?: string[]; timeout_ms: number; output_bytes: number; }
@@ -137,8 +150,15 @@ export function redactSecrets(value: unknown): unknown {
 
 export function assertNoSecrets(value: unknown): void { const found = findSecretPaths(value, "$"); if (found.length) throw securityError("SECRET_IN_INPUT", "secret-like fields are not accepted: " + found.join(",")); }
 export function normalizeOrigin(value: string): string { const url = new URL(value); if (url.username || url.password || (url.pathname !== "/" && url.pathname !== "")) throw securityError("INVALID_ORIGIN", "origin must not contain credentials or path"); return url.origin; }
-function findSecretPaths(value: unknown, prefix: string): string[] { if (Array.isArray(value)) return value.flatMap((item, index) => findSecretPaths(item, prefix + "[" + index + "]")); if (!value || typeof value !== "object") return []; return Object.entries(value as Record<string, unknown>).flatMap(([key, item]) => SECRET_KEY.test(key) ? [prefix + "." + key] : findSecretPaths(item, prefix + "." + key)); }
+function findSecretPaths(value: unknown, prefix: string): string[] { if (typeof value === "string") return SECRET_VALUE.test(value) ? [prefix] : []; if (Array.isArray(value)) return value.flatMap((item, index) => findSecretPaths(item, prefix + "[" + index + "]")); if (!value || typeof value !== "object") return []; return Object.entries(value as Record<string, unknown>).flatMap(([key, item]) => SECRET_KEY.test(key) ? [prefix + "." + key] : findSecretPaths(item, prefix + "." + key)); }
 function resolveExistingPath(target: string): string { let current = path.resolve(target); while (!fs.existsSync(current)) { const parent = path.dirname(current); if (parent === current) break; current = parent; } return fs.realpathSync.native(current); }
 function isWithin(base: string, candidate: string): boolean { const relative = path.relative(path.resolve(base), path.resolve(candidate)); return relative === "" || (relative !== ".." && !relative.startsWith(".." + path.sep) && !path.isAbsolute(relative)); }
-function isUnsafeIpv4(hostname: string): boolean { const parts = hostname.split(".").map(Number); return parts[0] === 10 || parts[0] === 127 || (parts[0] === 192 && parts[1] === 168) || (parts[0] === 169 && parts[1] === 254) || (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31); }
+function normalizeAllowedOrigin(value: string): string { if (/^https?:\/\/(?:\[[^\]]+\]|[^/:]+):\*$/.test(value)) return value.toLowerCase(); return normalizeOrigin(value); }
+function originWithin(origin: string, hostOrigin: string): boolean { if (!hostOrigin.endsWith(":*")) return origin === hostOrigin; if (origin.endsWith(":*")) return origin === hostOrigin; const url = new URL(origin); return url.protocol + "//" + url.hostname.toLowerCase() + ":*" === hostOrigin; }
+function originMatchesUrl(origin: string, url: URL): boolean { if (origin.endsWith(":*")) return url.protocol + "//" + url.hostname.toLowerCase() + ":*" === origin; return url.origin === origin; }
+function isExplicitLoopbackOrigin(hostname: string, origins: Set<string>): boolean { const lower = hostname.toLowerCase(); return (lower === "127.0.0.1" || lower === "::1" || lower === "localhost") && [...origins].some((origin) => origin.includes("127.0.0.1") || origin.includes("localhost") || origin.includes("[::1]")); }
+function isUnsafeAddress(address: string): boolean { const version = net.isIP(address); return version === 4 ? isUnsafeIpv4(address) : version === 6 && isUnsafeIpv6(address); }
+function isUnsafeIpv4(hostname: string): boolean { const parts = hostname.split(".").map(Number); const first = parts[0]; const second = parts[1]; return first === 0 || first === 10 || first === 127 || (first === 100 && second >= 64 && second <= 127) || (first === 169 && second === 254) || (first === 172 && second >= 16 && second <= 31) || (first === 192 && second === 0) || (first === 192 && second === 168) || (first === 198 && (second === 18 || second === 19 || second === 51)) || (first === 203 && second === 0) || first >= 224;
+}
+function isUnsafeIpv6(hostname: string): boolean { const lower = hostname.toLowerCase(); return lower === "::1" || lower === "0:0:0:0:0:0:0:1" || /^f[cd]/.test(lower) || /^fe[89ab]/.test(lower) || /^ff/.test(lower) || lower.startsWith("::ffff:") && isUnsafeIpv4(lower.slice(7)); }
 function securityError(code: string, message: string): Error & { code: string } { return Object.assign(new Error(message), { code }); }

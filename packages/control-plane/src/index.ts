@@ -8,7 +8,7 @@ import path from "node:path";
 import { Buffer } from "node:buffer";
 import type { OperationRegistry, OperationRecord } from "@autopw/operation-registry";
 import type { FixtureWorker } from "@autopw/worker";
-import { SecurityPolicyEngine, resolveAuthorizedPath, type HostContextLike } from "@autopw/security";
+import { assertNoSecrets, SecurityPolicyEngine, resolveAuthorizedPath, type HostContextLike } from "@autopw/security";
 
 type JsonObject = Record<string, any>;
 interface ToolContract { name: string; input_schema: JsonObject; result_union: JsonObject[]; creates_operation: boolean; }
@@ -65,6 +65,8 @@ export class ControlPlane {
     if (!tool) return { ok: false, error: mkErr("TOOL_NOT_FOUND", "unknown tool " + toolName) };
     const inputValidator = this.inputValidators[toolName];
     if (!inputValidator(request)) return { ok: false, error: mkErr("INVALID_INPUT", this._errText(inputValidator.errors)) };
+    try { assertNoSecrets(request); }
+    catch (error) { const value = error as Error & { code?: string }; return { ok: false, error: mkErr(value.code || "SECRET_IN_INPUT", "tool input contains secret-like data") }; }
     const host = this.hostContexts[String(request.workspace_id)];
     if (!host) return { ok: false, error: mkErr("UNAUTHORIZED_WORKSPACE", "workspace not in host allowlist") };
     const hostContext = host.mcp_host_context;
@@ -77,32 +79,8 @@ export class ControlPlane {
     const projectPath = path.resolve(base, String(request.project_subpath || "."));
     if (!fs.existsSync(projectPath)) return { ok: false, error: mkErr("PROJECT_SUBPATH_NOT_FOUND", "project_subpath does not exist") };
     if (!fs.statSync(projectPath).isDirectory()) return { ok: false, error: mkErr("PROJECT_SUBPATH_NOT_DIRECTORY", "project_subpath is not a directory") };
-    if (!this._isAuthorizedPath(base, String(request.project_subpath || "."))) return { ok: false, error: mkErr("WORKSPACE_ESCAPE", "project_subpath escapes workspace realpath") };
     if (request.auth_scope_id && request.auth_scope_id !== hostContext.auth_scope.auth_scope_id) return { ok: false, error: mkErr("AUTH_SCOPE_NOT_APPROVED", "auth_scope_id not approved by host") };
     return { ok: true, hostContext, tool, securitySnapshot };
-  }
-
-  private _isAuthorizedPath(base: string, projectSubpath: string): boolean {
-    const resolved = path.resolve(base, projectSubpath);
-    if (!this._isWithin(base, resolved)) return false;
-    return this._isWithin(this._realpathIfPossible(base), this._realpathIfPossible(this._existingAncestor(resolved)));
-  }
-
-  private _existingAncestor(target: string): string {
-    let current = target;
-    while (!fs.existsSync(current)) {
-      const parent = path.dirname(current);
-      if (parent === current) break;
-      current = parent;
-    }
-    return current;
-  }
-
-  private _realpathIfPossible(target: string): string { try { return fs.realpathSync.native(target); } catch { return path.resolve(target); } }
-
-  private _isWithin(base: string, candidate: string): boolean {
-    const relative = path.relative(path.resolve(base), path.resolve(candidate));
-    return relative === "" || (relative !== ".." && !relative.startsWith(".." + path.sep) && !path.isAbsolute(relative));
   }
 
   private _compile(schema: JsonObject): ValidateFunction {
@@ -140,7 +118,7 @@ export class ControlPlane {
     if (toolName === "derive_coverage" || toolName === "run_audit") {
       try {
         const hostMax = Number(auth.hostContext.max_execution_instances_per_run || 100);
-        const preview = await this.worker.preflight({ ...request, __host_max_execution_instances: hostMax });
+        const preview = await this.worker.preflight({ ...persistedRequest, __host_max_execution_instances: hostMax });
         if (preview.derivation.projection.projected_execution_instances > preview.derivation.projection.effective_budget) {
           return err("MATRIX_BUDGET_EXCEEDED", "projected execution instances exceed effective matrix budget", {
             projected_execution_instances: preview.derivation.projection.projected_execution_instances,
