@@ -24,6 +24,33 @@ export class RunStorage {
     this.writeFile(runId, name, Buffer.from(JSON.stringify(value, null, 2) + "\n", "utf8"));
   }
 
+  readJson<T>(runId: string, name: string): T | undefined {
+    const file = this.safePath(runId, name);
+    if (!fs.existsSync(file)) return undefined;
+    return JSON.parse(fs.readFileSync(file, "utf8")) as T;
+  }
+
+  compareAndSwapJson<T extends { lease?: { state_version?: number } }>(runId: string, name: string, expectedVersion: number, mutator: (value: T) => T): T | undefined {
+    const file = this.safePath(runId, name);
+    const lock = file + ".lock";
+    let handle: number | undefined;
+    try {
+      handle = fs.openSync(lock, "wx");
+      if (!fs.existsSync(file)) return undefined;
+      const current = JSON.parse(fs.readFileSync(file, "utf8")) as T;
+      if (current.lease?.state_version !== expectedVersion) return undefined;
+      const next = mutator(JSON.parse(JSON.stringify(current)) as T);
+      this.writeJson(runId, name, next);
+      return next;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") return undefined;
+      throw error;
+    } finally {
+      if (handle !== undefined) fs.closeSync(handle);
+      if (handle !== undefined) { try { fs.rmSync(lock, { force: true }); } catch { /* best effort lock cleanup */ } }
+    }
+  }
+
   writeFile(runId: string, name: string, data: Buffer | string): void {
     const target = this.safePath(runId, name);
     fs.mkdirSync(path.dirname(target), { recursive: true });

@@ -52,14 +52,14 @@ export class PlaywrightFixtureRunner {
       for (const step of item.steps) await this.executeStep(page, step, baseUrl, variant, consoleErrors);
       const screenshot = await page.screenshot({ type: "png", fullPage: true });
       evidenceRefs.push(storage.writeArtifact(runId, execution_id + ".png", "screenshot", screenshot));
-      const consoleRef = storage.writeArtifact(runId, execution_id + ".console.json", "console.json", JSON.stringify({ errors: consoleErrors, failed_requests: failedRequests }, null, 2));
+      const consoleRef = storage.writeArtifact(runId, execution_id + ".console.json", "console.json", JSON.stringify({ errors: consoleErrors.map(redact), failed_requests: failedRequests.map(redact) }, null, 2));
       evidenceRefs.push(consoleRef);
       return { execution_id, case_id: item.case_id, status: "PASSED", attempts: [{ at: new Date().toISOString() }], evidence_refs: evidenceRefs, at: new Date().toISOString() };
     } catch (error) {
       const screenshot = await page.screenshot({ type: "png", fullPage: true }).catch(() => Buffer.from([]));
       if (screenshot.length) evidenceRefs.push(storage.writeArtifact(runId, execution_id + ".png", "screenshot", screenshot));
-      evidenceRefs.push(storage.writeArtifact(runId, execution_id + ".console.json", "console.json", JSON.stringify({ errors: consoleErrors, failed_requests: failedRequests }, null, 2)));
-      return { execution_id, case_id: item.case_id, status: "FAILED", attempts: [{ at: new Date().toISOString() }], evidence_refs: evidenceRefs, at: new Date().toISOString(), error: error instanceof Error ? error.message : String(error), classification: "PRODUCT_DEFECT" };
+      evidenceRefs.push(storage.writeArtifact(runId, execution_id + ".console.json", "console.json", JSON.stringify({ errors: consoleErrors.map(redact), failed_requests: failedRequests.map(redact) }, null, 2)));
+      return { execution_id, case_id: item.case_id, status: "FAILED", attempts: [{ at: new Date().toISOString() }], evidence_refs: evidenceRefs, at: new Date().toISOString(), error: redact(error instanceof Error ? error.message : String(error)), classification: "PRODUCT_DEFECT" };
     } finally { await context.close(); }
   }
 
@@ -75,3 +75,4 @@ export class PlaywrightFixtureRunner {
 function executionId(caseId: string): string { return "EXE-" + Buffer.from(caseId).toString("hex").padEnd(16, "0").slice(0, 16); }
 function batchId(): string { return "BAT-" + "m2fixture0000000".slice(0, 16); }
 function pathForCheckpoint(executionIdValue: string): string { return "checkpoints/" + executionIdValue + ".json"; }
+function redact(value: string): string { return value.replace(/([?&](?:token|secret|password|authorization|cookie)=)[^&\s]+/gi, "$1[REDACTED]").replace(/(Bearer\s+)[A-Za-z0-9._-]+/gi, "$1[REDACTED]").replace(/(password|secret|token)\s*[:=]\s*[^,\s]+/gi, "$1=[REDACTED]"); }

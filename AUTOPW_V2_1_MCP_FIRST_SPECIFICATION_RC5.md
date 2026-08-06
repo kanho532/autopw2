@@ -26,6 +26,10 @@
 18. **Retention 正式契约**：Operation、Run、Preview、Evidence、Cache 和幂等记录均受版本化 retention policy、TTL、配额和 tombstone 规则治理。
 19. **冻结语义明确**：Phase 0 冻结的是可实施基线，不等于永久不可修改；后续实证发现必须通过 ADR、版本变更和受影响里程碑回归来修订。
 
+## 开发语言与实现约定
+
+AutoPW 的主要实现语言为 **TypeScript**。MCP Server、Control Plane、Operation Registry、Worker、Run Storage、Core、Discovery、Derivation、Planner、Compiler、Execution、Audit、Reporting 和 Gate 等运行时代码统一使用严格 TypeScript，并以类型检查和 lint 作为交付门槛。`.mjs` 仅用于生成器、验证器及必要的兼容性入口；新增核心运行时代码不得扩大 `.mjs` 范围。
+
 第十五章的不变量是不可协商的硬约束。
 
 ---

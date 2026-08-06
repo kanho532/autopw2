@@ -9,10 +9,12 @@ import { RunStorage, type ArtifactRef } from "@autopw/run-storage";
 import type { RunSnapshot } from "@autopw/operation-registry";
 import { discover } from "@autopw/discovery";
 import { analyzeDiff, deriveCoverage, digest, type DerivationResult, type DiffResult, type Tier } from "@autopw/derivation";
+import { DeterministicFixturePlanner, LocalStructuredPlannerProvider, PlanTemplateCache, plannerInputDigest, validatePlannerOutput, type CandidateCatalog, type PlannerInput, type PlannerOutput, type PlannerProviderOptions, type PlanTemplate } from "@autopw/planner";
 
 export interface VerticalRun extends RunSnapshot { phase: string; }
 export interface VerticalResult { gate: "incomplete" | "infra" | "fail" | "unstable" | "pass"; audit_status: "COMPLETE" | "INCOMPLETE"; results_ref: ArtifactRef; report_ref: ArtifactRef; gate_summary: Record<string, unknown>; cases: Record<string, unknown>[]; evidence_refs: ArtifactRef[]; }
 export interface CoveragePreview { discovery: Record<string, unknown>; derivation: DerivationResult; diff: DiffResult; result_ref?: ArtifactRef; summary: Record<string, unknown>; }
+interface PlannerArtifacts { input: PlannerInput; output: PlannerOutput; template: PlanTemplate; audit: Record<string, unknown>; }
 type PhaseCallback = (phase: string, progress: number, nextAction: string) => void;
 
 export class AuditVerticalSlice {
@@ -47,6 +49,11 @@ export class AuditVerticalSlice {
       this.storage.writeJson(run.run_id, "discovery.json", coverage.discovery);
       this.storage.writeJson(run.run_id, "derivation.json", coverage.derivation);
       commitPhase("COVERAGE_DERIVED", 30, "poll get_run_status");
+      const planner = await this.fillPlanner({ request, coverage, targetUrl: target.baseUrl });
+      this.storage.writeJson(run.run_id, "planner-input.json", planner.input);
+      this.storage.writeJson(run.run_id, "planner-output.json", planner.output);
+      this.storage.writeJson(run.run_id, "plan-template.json", { cache_key: planner.template.cache_key, selections_digest: planner.template.selections_digest, planner_provider_id: planner.template.planner_provider_id, model_id: planner.template.model_id });
+      this.storage.writeJson(run.run_id, "planner-audit.json", planner.audit);
       commitPhase("PLAN_FILLED", 36, "poll get_run_status");
       const compiled = compileFixturePlan(FIXTURE_PLAN);
       this.storage.writeJson(run.run_id, "plan.json", compiled.plan);
@@ -135,7 +142,61 @@ export class AuditVerticalSlice {
     return { discovery: discovery as unknown as Record<string, unknown>, derivation, diff, result_ref, summary };
   }
 
+  private async fillPlanner({ request, coverage, targetUrl }: { request: Record<string, unknown>; coverage: CoveragePreview; targetUrl: string }): Promise<PlannerArtifacts> {
+    const candidates = fixtureCandidates(targetUrl);
+    const skeletons = FIXTURE_PLAN.cases.map((item) => ({
+      case_id: item.case_id, feature_id: item.feature_id, scenario: item.scenario, route_id: "route_" + item.case_id,
+      action_ids: Object.values(candidates.actions).filter((candidate) => candidate.case_id === item.case_id).map((candidate) => candidate.id),
+      expectation_ids: Object.values(candidates.expectations).filter((candidate) => candidate.case_id === item.case_id).map((candidate) => candidate.id),
+      status: coverage.derivation.skeleton.find((candidate) => candidate.case_id === item.case_id)?.status || "PLANNED"
+    }));
+    const input: PlannerInput = {
+      schemaVersion: "2.1", skeletons, candidates, contractRefs: [{ contractId: "fixture-plan", version: "2.1", ref: "fixture://plan" }],
+      untrustedObservations: Object.entries(coverage.discovery).slice(0, 24).map(([kind, value], index) => ({ observationId: "obs_" + index, untrusted: true as const, kind, value: JSON.stringify(value).slice(0, 400) }))
+    };
+    const options: PlannerProviderOptions = { provider_id: "local-structured", provider_version: "1", model_id: String(request.model_id || "local-deterministic"), timeout_ms: Math.max(100, Number(request.planner_timeout_ms || 2000)), token_budget: Math.max(64, Number(request.planner_token_budget || 2048)), temperature: 0, max_attempts: 2 };
+    const cache = new PlanTemplateCache(path.join(this.storage.dataRoot, "plan-cache"));
+    const key = cache.key({ normalized_profile_digest: digest(String(request.profile_path || "default")), coverage_policy_digest: digest(JSON.stringify(request.coverage_policy || {})), scenario_contract_digest: digest("fixture-scenarios-v2"), route_map_digest: digest("fixture-route-map"), discovery_digest: plannerInputDigest(input), engine_version: "2.1", schema_version: "2.1", planner_provider_id: options.provider_id, planner_provider_version: options.provider_version, model_id: options.model_id, base_tier: String(request.tier || request.base_tier || "fast"), sorted_scope: skeletons.map((item) => item.case_id).sort(), locale: String(request.locale || "en-US"), auth_scope_id: String(request.auth_scope_id || "as_demo"), run_id: request.run_id, seed: request.seed });
+    const cached = cache.get(key);
+    let output: PlannerOutput;
+    let attempts = 0;
+    if (cached) { output = cached.selections; attempts = 0; }
+    else {
+      const provider = request.planner_provider === "fixture" ? new DeterministicFixturePlanner() : new LocalStructuredPlannerProvider();
+      let lastError: unknown;
+      for (let attempt = 1; attempt <= (options.max_attempts || 2); attempt += 1) {
+        attempts = attempt;
+        try { output = await withTimeout(provider.fill(input, options), options.timeout_ms); const valid = validatePlannerOutput(input, output, { allowedOrigin: new URL(targetUrl).origin, production: false }); if (!valid.ok) throw plannerError("PLAN_VALIDATION_FAILED: " + valid.errors.join("; ")); break; }
+        catch (error) { lastError = error; if (attempt === (options.max_attempts || 2)) throw plannerError(lastError instanceof Error ? lastError.message : String(lastError)); }
+      }
+      output = output!;
+      cache.put(key, output, options);
+    }
+    const validation = validatePlannerOutput(input, output, { allowedOrigin: new URL(targetUrl).origin, production: false });
+    if (!validation.ok) throw plannerError("PLAN_VALIDATION_FAILED: " + validation.errors.join("; "));
+    const template = cache.get(key) || cache.put(key, output, options);
+    return { input, output, template, audit: { schema_version: "2.1", provider_id: options.provider_id, provider_version: options.provider_version, model_id: options.model_id, temperature: 0, timeout_ms: options.timeout_ms, token_budget: options.token_budget, attempts, cache_hit: Boolean(cached), output_digest: template.selections_digest } };
+  }
+
   private variant(value: FixtureVariant | undefined): FixtureVariant { return value === "fail" || value === "incomplete" ? value : "pass"; }
+}
+
+function plannerError(message: string): Error & { code: string } { return Object.assign(new Error(message), { code: "PLAN_DEFECT" }); }
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> { let timer: NodeJS.Timeout | undefined; try { return await Promise.race([promise, new Promise<T>((_, reject) => { timer = setTimeout(() => reject(plannerError("PLANNER_TIMEOUT")), timeoutMs); })]); } finally { if (timer) clearTimeout(timer); } }
+function fixtureCandidates(origin: string): CandidateCatalog {
+  const routes: CandidateCatalog["routes"] = {}; const actions: CandidateCatalog["actions"] = {}; const locators: CandidateCatalog["locators"] = {}; const inputs: CandidateCatalog["inputs"] = {}; const expectations: CandidateCatalog["expectations"] = {}; const endpoints: CandidateCatalog["endpoints"] = {};
+  for (const item of FIXTURE_PLAN.cases) {
+    const routeId = "route_" + item.case_id; routes[routeId] = { id: routeId, kind: "route", case_id: item.case_id, scenario: item.scenario, origin, source: "fixture" };
+    item.steps.forEach((step, index) => {
+      const actionId = "act_" + item.case_id + "_" + index; const selector = "selector" in step ? step.selector : undefined;
+      const locatorId = selector ? "loc_" + item.case_id + "_" + index : undefined; const inputId = step.action === "fill" ? "input_" + item.case_id + "_" + index : undefined;
+      actions[actionId] = { id: actionId, kind: "action", case_id: item.case_id, scenario: item.scenario, route_id: routeId, locator_id: locatorId, input_id: inputId, action: step.action, source: "fixture" };
+      if (locatorId) locators[locatorId] = { id: locatorId, kind: "locator", case_id: item.case_id, scenario: item.scenario, route_id: routeId, source: "fixture" };
+      if (inputId) inputs[inputId] = { id: inputId, kind: "input", case_id: item.case_id, scenario: item.scenario, route_id: routeId, source: "fixture" };
+    });
+    const expectationId = "exp_" + item.case_id; expectations[expectationId] = { id: expectationId, kind: "expectation", case_id: item.case_id, scenario: item.scenario, route_id: routeId, origin, strength: "strong", source: "fixture" };
+  }
+  return { routes, actions, locators, inputs, expectations, endpoints };
 }
 
 function stableJson(value: unknown): string {
