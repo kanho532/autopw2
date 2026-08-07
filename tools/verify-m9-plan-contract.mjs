@@ -104,6 +104,13 @@ check("m9.1-overlay-manual-case-wins", merged.cases.length === 1 && merged.cases
 check("m9.1-overlay-origin-is-mixed", merged.origin.type === "mixed" && merged.cases[0].origin?.type === "manual");
 const replaced = plan.mergePlans({ ...base, cases: [uiCase] }, { ...base, cases: [apiCase] }, "replace");
 check("m9.1-replace-uses-explicit-plan", replaced.cases.length === 1 && replaced.cases[0].case_id === "case_api");
+const manualCssPlan = { ...base, plan_id: "manual_css", origin: { type: "generated" }, cases: [{ ...uiCase, steps: [{ action: "click", locator: { by: "css", value: "#save", authority: "trusted_manual" } }] }] };
+check("m9.1-untrusted-css-merge-rejected", (() => { try { plan.mergePlans({ ...base, origin: { type: "generated" }, cases: [uiCase] }, manualCssPlan, "overlay"); return false; } catch (error) { return error.code === "PLAN_INVALID"; } })());
+const trustedCssMerge = plan.mergePlans({ ...base, origin: { type: "generated" }, cases: [uiCase] }, manualCssPlan, "overlay", { manualAuthority: { authority: "trusted_manual" } });
+check("m9.1-trusted-css-merge-accepted", trustedCssMerge.origin.type === "mixed" && trustedCssMerge.cases[0].origin?.type === "manual");
+const replacedGenerated = plan.mergePlans({ ...base, cases: [uiCase] }, { ...base, origin: { type: "generated" }, cases: [apiCase] }, "replace");
+check("m9.1-replace-forces-manual-provenance", replacedGenerated.origin.type === "manual" && replacedGenerated.cases[0].origin?.type === "manual");
+check("m9.1-malformed-merge-is-plan-invalid", (() => { try { plan.mergePlans({ ...base, cases: [uiCase] }, { cases: null }, "replace"); return false; } catch (error) { return error.code === "PLAN_INVALID"; } })());
 
 const fixturePlan = { schema_version: "2.1", frozen_at: "2026-08-06T00:00:00.000Z", cases: [{ case_id: "fixture_case", feature_id: "demo", scenario: "normal", effective_tier: "fast", steps: [{ action: "goto", path: "/" }, { action: "click", selector: "#save" }, { action: "expect_visible", selector: "#success" }] }] };
 const migrated = plan.fromFixturePlan(fixturePlan);

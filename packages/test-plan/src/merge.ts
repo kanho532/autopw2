@@ -1,7 +1,7 @@
 import type { FixtureDefinition, TestCase, TestPlan } from "./model.js";
 import { stableStringify } from "./digest.js";
 import { normalizePlan } from "./normalize.js";
-import type { PlanValidationContext } from "./validator.js";
+import { assertValidPlan, type PlanValidationContext } from "./validator.js";
 
 export type PlanMergeMode = "auto" | "overlay" | "replace";
 export interface PlanMergeContext { manualAuthority: PlanValidationContext; }
@@ -9,6 +9,7 @@ export interface PlanMergeContext { manualAuthority: PlanValidationContext; }
 export function mergePlans(autoPlan: TestPlan, manualPlan: TestPlan | undefined, mode: PlanMergeMode, context: PlanMergeContext = { manualAuthority: { authority: "untrusted" } }): TestPlan {
   const auto = normalizePlan(autoPlan, { authority: "generated" });
   if (!manualPlan || mode === "auto") return auto;
+  assertValidPlan(manualPlan, context.manualAuthority);
   const manual = normalizePlan(asManualPlan(manualPlan), context.manualAuthority);
   if (mode === "replace") return manual;
 

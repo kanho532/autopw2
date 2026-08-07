@@ -9,6 +9,11 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const { RunStorage } = await import(pathToFileURL(path.join(root, "packages/run-storage/dist/index.js")).href);
 if (!isMainThread) {
   const workerStorage = new RunStorage(workerData.dataRoot);
+  if (workerData.mode === "cas") {
+    const result = workerStorage.compareAndSwapJson(workerData.runId, "cas-state.json", 1, (current) => ({ ...current, lease: { state_version: 2 } }));
+    parentPort.postMessage({ ok: true, won: result !== undefined });
+    process.exit(0);
+  }
   for (let index = 0; index < 5; index += 1) workerStorage.writeCaseArtifact(workerData.runId, "case_worker", "worker_" + workerData.workerId + "_" + index + ".bin", "worker", Buffer.from(workerData.workerId + ":" + index));
   parentPort.postMessage({ ok: true });
   process.exit(0);
@@ -70,6 +75,14 @@ try {
   check("m9.2-concurrent-artifacts-resolve", Object.values(concurrentIndex.artifacts).filter((entry) => entry.kind === "worker").every((entry) => storage.readArtifactRef(runId, { handle: Object.keys(concurrentIndex.artifacts).find((handle) => concurrentIndex.artifacts[handle] === entry), kind: entry.kind }).length > 0));
   const leftovers = fs.readdirSync(dataRoot, { recursive: true }).filter((name) => name.endsWith(".lock") || name.includes(".tmp."));
   check("m9.2-concurrent-no-lock-or-temp-leftovers", leftovers.length === 0);
+  storage.writeJson(runId, "cas-state.json", { lease: { state_version: 1 } });
+  const casResults = await Promise.all(Array.from({ length: 8 }, (_, workerId) => new Promise((resolve, reject) => {
+    const worker = new Worker(new URL("./verify-m9-storage.mjs", import.meta.url), { workerData: { dataRoot, runId, workerId, mode: "cas" } });
+    worker.once("message", resolve);
+    worker.once("error", reject);
+    worker.once("exit", (code) => { if (code !== 0) reject(new Error("CAS worker exited with code " + code)); });
+  })));
+  check("m9.2-cas-single-winner", casResults.filter((result) => result.won).length === 1 && storage.readJson(runId, "cas-state.json")?.lease?.state_version === 2);
 } finally {
   try { fs.rmSync(dataRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }); } catch { /* workers report their own failure */ }
 }

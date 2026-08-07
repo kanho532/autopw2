@@ -15,6 +15,7 @@ const ARTIFACT_HANDLE = /^art_[a-f0-9]{64}$/;
 const ARTIFACT_INDEX_PATH = /^cases\/[A-Za-z0-9_.:%-]+\/artifacts\/art_[a-f0-9]{64}(?:\.[A-Za-z0-9_.-]+)?$/;
 const LOCK_LEASE_MS = 120_000;
 interface LockHandle { fd: number; ownerToken: string; path: string; }
+interface LockMetadata { pid?: number; thread_id?: number; owner_token?: string; created_at?: number; expires_at?: number; }
 
 export class RunStorage {
   readonly dataRoot: string;
@@ -71,6 +72,7 @@ export class RunStorage {
 
   readJson<T>(runId: string, name: string): T | undefined {
     const file = this.safePath(runId, name);
+    this._recoverFileReplacement(file);
     if (!fs.existsSync(file)) return undefined;
     return JSON.parse(fs.readFileSync(file, "utf8")) as T;
   }
@@ -86,6 +88,7 @@ export class RunStorage {
       const current = JSON.parse(fs.readFileSync(file, "utf8")) as T;
       if (current.lease?.state_version !== expectedVersion) return undefined;
       const next = mutator(JSON.parse(JSON.stringify(current)) as T);
+      this._assertLockOwner(handle);
       this.writeJson(runId, name, next);
       return next;
     } catch (error) {
@@ -99,26 +102,35 @@ export class RunStorage {
   private _acquireLock(lock: string): LockHandle | undefined {
     const ownerToken = crypto.randomUUID();
     try {
-      const fd = fs.openSync(lock, "wx");
-      fs.writeFileSync(fd, JSON.stringify({ pid: process.pid, thread_id: threadId, owner_token: ownerToken, created_at: Date.now(), expires_at: Date.now() + LOCK_LEASE_MS }), "utf8");
-      return { fd, ownerToken, path: lock };
+      return this._createLock(lock, ownerToken);
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
       if (code !== "EEXIST" && code !== "EPERM" && code !== "EACCES") throw error;
       try {
         const stat = fs.statSync(lock);
-        const metadata = JSON.parse(fs.readFileSync(lock, "utf8") || "{}") as { pid?: number; thread_id?: number; owner_token?: string; created_at?: number; expires_at?: number };
+        let metadata: LockMetadata = {};
+        try { metadata = JSON.parse(fs.readFileSync(lock, "utf8") || "{}") as LockMetadata; } catch { /* treat damaged metadata as stale only after the lease */ }
         const age = Date.now() - (metadata.created_at || stat.mtimeMs);
         if (age > LOCK_LEASE_MS || (typeof metadata.expires_at === "number" && Date.now() > metadata.expires_at)) {
           const stalePath = lock + ".stale." + ownerToken;
           try {
             fs.renameSync(lock, stalePath);
-            const fd = fs.openSync(lock, "wx");
-            fs.writeFileSync(fd, JSON.stringify({ pid: process.pid, thread_id: threadId, owner_token: ownerToken, created_at: Date.now(), expires_at: Date.now() + LOCK_LEASE_MS }), "utf8");
-            try { fs.rmSync(stalePath, { force: true }); } catch { /* best effort stale cleanup */ }
-            return { fd, ownerToken, path: lock };
+            let staleMetadata: LockMetadata = {};
+            try { staleMetadata = JSON.parse(fs.readFileSync(stalePath, "utf8") || "{}") as LockMetadata; } catch { /* keep the original damaged-lock state */ }
+            if (staleMetadata.owner_token !== metadata.owner_token) {
+              this._restoreStaleLock(stalePath, lock);
+              return undefined;
+            }
+            try {
+              const handle = this._createLock(lock, ownerToken);
+              try { fs.rmSync(stalePath, { force: true }); } catch { /* best effort stale cleanup */ }
+              return handle;
+            } catch (takeoverError) {
+              try { fs.rmSync(stalePath, { force: true }); } catch { /* best effort stale cleanup */ }
+              if ((takeoverError as NodeJS.ErrnoException).code !== "EEXIST") throw takeoverError;
+              return undefined;
+            }
           } catch (takeoverError) {
-            try { fs.rmSync(stalePath, { force: true }); } catch { /* another contender owns cleanup */ }
             if ((takeoverError as NodeJS.ErrnoException).code !== "ENOENT") return undefined;
           }
         }
@@ -126,6 +138,37 @@ export class RunStorage {
         if ((lockError as NodeJS.ErrnoException).code !== "ENOENT") return undefined;
       }
       return undefined;
+    }
+  }
+
+  private _createLock(lock: string, ownerToken: string): LockHandle {
+    let fd: number | undefined;
+    try {
+      fd = fs.openSync(lock, "wx");
+      const now = Date.now();
+      fs.writeFileSync(fd, JSON.stringify({ pid: process.pid, thread_id: threadId, owner_token: ownerToken, created_at: now, expires_at: now + LOCK_LEASE_MS }), "utf8");
+      this._syncDescriptor(fd);
+      return { fd, ownerToken, path: lock };
+    } catch (error) {
+      if (fd !== undefined) {
+        try { fs.closeSync(fd); } catch { /* best effort descriptor cleanup */ }
+        try { fs.rmSync(lock, { force: true }); } catch { /* best effort lock cleanup */ }
+      }
+      throw error;
+    }
+  }
+
+  private _restoreStaleLock(stalePath: string, lock: string): void {
+    try { fs.renameSync(stalePath, lock); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      try { fs.rmSync(stalePath, { force: true }); } catch { /* another owner is already active */ }
+    }
+  }
+
+  private _assertLockOwner(handle: LockHandle): void {
+    const metadata = JSON.parse(fs.readFileSync(handle.path, "utf8")) as LockMetadata;
+    if (metadata.owner_token !== handle.ownerToken || (typeof metadata.expires_at === "number" && Date.now() > metadata.expires_at)) {
+      throw Object.assign(new Error("lock lease is no longer owned"), { code: "LOCK_NOT_OWNER" });
     }
   }
 
@@ -140,19 +183,64 @@ export class RunStorage {
   writeFile(runId: string, name: string, data: Buffer | string): void {
     const target = this.safePath(runId, name);
     fs.mkdirSync(path.dirname(target), { recursive: true });
+    this._recoverFileReplacement(target);
     const temporary = target + ".tmp." + process.pid + "." + crypto.randomUUID();
     fs.writeFileSync(temporary, data);
-    let lastError: unknown;
-    for (let attempt = 0; attempt < 20; attempt += 1) {
-      try { fs.renameSync(temporary, target); return; }
-      catch (error) {
-        lastError = error;
-        if (!["EPERM", "EACCES", "ENOTEMPTY"].includes((error as NodeJS.ErrnoException).code || "")) throw error;
-        const sleeper = new Int32Array(new SharedArrayBuffer(4));
-        Atomics.wait(sleeper, 0, 0, 10);
+    try {
+      this._syncFile(temporary);
+      let lastError: unknown;
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        try { fs.renameSync(temporary, target); return; }
+        catch (error) {
+          lastError = error;
+          if (!["EEXIST", "EPERM", "EACCES", "ENOTEMPTY"].includes((error as NodeJS.ErrnoException).code || "")) throw error;
+          const sleeper = new Int32Array(new SharedArrayBuffer(4));
+          Atomics.wait(sleeper, 0, 0, 10);
+        }
       }
+      if (fs.existsSync(target)) {
+        this._replaceExistingFile(temporary, target);
+        return;
+      }
+      throw lastError;
+    } finally {
+      try { fs.rmSync(temporary, { force: true }); } catch { /* best effort temp cleanup */ }
     }
-    throw lastError;
+  }
+
+  private _replaceExistingFile(temporary: string, target: string): void {
+    const previous = target + ".previous";
+    try { fs.rmSync(previous, { force: true }); } catch { /* stale recovery file is best effort */ }
+    fs.renameSync(target, previous);
+    try {
+      fs.renameSync(temporary, target);
+    } catch (error) {
+      try { if (!fs.existsSync(target)) fs.renameSync(previous, target); } catch { /* recovery will retry on next access */ }
+      throw error;
+    }
+    try { fs.rmSync(previous, { force: true }); } catch { /* recovery will clean it on next access */ }
+  }
+
+  private _recoverFileReplacement(target: string): void {
+    const previous = target + ".previous";
+    const targetExists = fs.existsSync(target);
+    const previousExists = fs.existsSync(previous);
+    if (!targetExists && previousExists) {
+      try { fs.renameSync(previous, target); } catch { /* leave recovery state for the next access */ }
+    } else if (targetExists && previousExists) {
+      try { fs.rmSync(previous, { force: true }); } catch { /* best effort recovery cleanup */ }
+    }
+  }
+
+  private _syncFile(file: string): void {
+    const fd = fs.openSync(file, "r");
+    try { this._syncDescriptor(fd); } finally { fs.closeSync(fd); }
+  }
+
+  private _syncDescriptor(fd: number): void {
+    try { fs.fsyncSync(fd); } catch (error) {
+      if (!["EPERM", "EINVAL", "ENOTSUP"].includes((error as NodeJS.ErrnoException).code || "")) throw error;
+    }
   }
 
   appendEvent(runId: string, event: Omit<RunEvent, "seq" | "at"> & Partial<Pick<RunEvent, "at">>): RunEvent {
@@ -176,6 +264,7 @@ export class RunStorage {
 
   readArtifactIndex(runId: string): ArtifactIndex | undefined {
     const file = this.artifactIndexPath(runId);
+    this._recoverFileReplacement(file);
     if (!fs.existsSync(file)) return undefined;
     const index = JSON.parse(fs.readFileSync(file, "utf8")) as ArtifactIndex;
     this.validateArtifactIndex(index);
@@ -190,6 +279,7 @@ export class RunStorage {
       const current = this.readArtifactIndex(runId) || { schema_version: "1.0", artifacts: {} };
       const next = mutator(JSON.parse(JSON.stringify(current)) as ArtifactIndex);
       this.validateArtifactIndex(next);
+      this._assertLockOwner(handle);
       this.writeJson(runId, "artifact-index.json", next);
       return next;
     } finally {
