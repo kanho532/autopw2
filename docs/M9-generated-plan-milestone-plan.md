@@ -51,7 +51,9 @@ and digests are intentionally excluded.
   migrated.
 - Keep the MCP 2.1 public request unchanged; external URL and plan source are
   Host/CLI concerns.
-- Keep Fixture and declarative engines side by side until M10.
+- Keep the Fixture/legacy execution path as the only executable path through
+  M9.2; future declarative/structured modes remain fail-closed until their
+  implementation milestones are accepted.
 - Treat missing coverage as `incomplete`, never as a product defect.
 - Keep untrusted observations and plans non-authoritative.
 - Do not let Planner output bypass Candidate validation or security policy.

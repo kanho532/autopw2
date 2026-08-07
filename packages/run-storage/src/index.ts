@@ -8,6 +8,9 @@ export interface ArtifactIndex { schema_version: "1.0"; artifacts: Record<string
 export interface RunEvent { seq: number; kind: string; phase?: string; at: string; detail: Record<string, unknown>; }
 
 const SAFE_ID = /^[A-Za-z0-9_.:-]+$/;
+const SAFE_KIND = /^[A-Za-z0-9_.:-]+$/;
+const ARTIFACT_HANDLE = /^art_[a-f0-9]{64}$/;
+const ARTIFACT_INDEX_PATH = /^cases\/[A-Za-z0-9_.:%-]+\/artifacts\/[^/]+$/;
 
 export class RunStorage {
   readonly dataRoot: string;
@@ -41,15 +44,17 @@ export class RunStorage {
 
   writeCaseArtifact(runId: string, caseId: string, name: string, kind: string, data: Buffer | string): ArtifactRef {
     this.assertSafeFileName(name, "artifact file name");
+    if (typeof kind !== "string" || !SAFE_KIND.test(kind)) throw Object.assign(new Error("artifact kind is invalid"), { code: "ARTIFACT_KIND_INVALID" });
     this.caseDir(runId, caseId);
     const relativePath = this.toPortablePath(path.join("cases", this.caseStorageSegment(caseId), "artifacts", name));
     const bytes = Buffer.isBuffer(data) ? data : Buffer.from(data);
     this.writeFile(runId, relativePath, bytes);
     const sha256 = crypto.createHash("sha256").update(bytes).digest("hex");
     const handle = "art_" + crypto.createHash("sha256").update(runId + "\0" + relativePath + "\0" + kind).update(bytes).digest("hex");
-    const index = this.readArtifactIndex(runId) || { schema_version: "1.0", artifacts: {} };
-    index.artifacts[handle] = { relative_path: relativePath, kind, size_bytes: bytes.length, sha256 };
-    this.writeJson(runId, "artifact-index.json", index);
+    this.updateArtifactIndex(runId, (index) => {
+      index.artifacts[handle] = { relative_path: relativePath, kind, size_bytes: bytes.length, sha256 };
+      return index;
+    });
     return { handle, kind, size_bytes: bytes.length };
   }
 
@@ -117,7 +122,7 @@ export class RunStorage {
   writeFile(runId: string, name: string, data: Buffer | string): void {
     const target = this.safePath(runId, name);
     fs.mkdirSync(path.dirname(target), { recursive: true });
-    const temporary = target + ".tmp." + process.pid;
+    const temporary = target + ".tmp." + process.pid + "." + crypto.randomUUID();
     fs.writeFileSync(temporary, data);
     fs.renameSync(temporary, target);
   }
@@ -144,13 +149,48 @@ export class RunStorage {
   readArtifactIndex(runId: string): ArtifactIndex | undefined {
     const file = this.artifactIndexPath(runId);
     if (!fs.existsSync(file)) return undefined;
-    return JSON.parse(fs.readFileSync(file, "utf8")) as ArtifactIndex;
+    const index = JSON.parse(fs.readFileSync(file, "utf8")) as ArtifactIndex;
+    this.validateArtifactIndex(index);
+    return index;
+  }
+
+  private updateArtifactIndex(runId: string, mutator: (index: ArtifactIndex) => ArtifactIndex): ArtifactIndex {
+    const indexPath = this.artifactIndexPath(runId);
+    const lockPath = indexPath + ".lock";
+    const handle = this._acquireRetryingLock(lockPath);
+    try {
+      const current = this.readArtifactIndex(runId) || { schema_version: "1.0", artifacts: {} };
+      const next = mutator(JSON.parse(JSON.stringify(current)) as ArtifactIndex);
+      this.validateArtifactIndex(next);
+      this.writeJson(runId, "artifact-index.json", next);
+      return next;
+    } finally {
+      fs.closeSync(handle);
+      try { fs.rmSync(lockPath, { force: true }); } catch { /* best effort lock cleanup */ }
+    }
+  }
+
+  private _acquireRetryingLock(lock: string): number {
+    for (let attempt = 0; attempt < 400; attempt += 1) {
+      const handle = this._acquireLock(lock);
+      if (handle !== undefined) return handle;
+      const sleeper = new Int32Array(new SharedArrayBuffer(4));
+      Atomics.wait(sleeper, 0, 0, 5);
+    }
+    throw Object.assign(new Error("artifact index lock timeout"), { code: "ARTIFACT_INDEX_LOCK_TIMEOUT" });
+  }
+
+  private validateArtifactIndex(index: ArtifactIndex): void {
+    if (!index || index.schema_version !== "1.0" || !index.artifacts || typeof index.artifacts !== "object" || Array.isArray(index.artifacts)) throw Object.assign(new Error("artifact index is invalid"), { code: "ARTIFACT_INDEX_INVALID" });
+    for (const [handle, entry] of Object.entries(index.artifacts)) {
+      if (!ARTIFACT_HANDLE.test(handle) || !entry || !ARTIFACT_INDEX_PATH.test(entry.relative_path) || !SAFE_KIND.test(entry.kind) || !Number.isInteger(entry.size_bytes) || entry.size_bytes < 0 || !/^[a-f0-9]{64}$/.test(entry.sha256)) throw Object.assign(new Error("artifact index entry is invalid"), { code: "ARTIFACT_INDEX_INVALID" });
+    }
   }
 
   readArtifactRef(runId: string, ref: ArtifactRef): Buffer {
-    if (ref && typeof ref.handle === "string" && /^art_[a-f0-9]{64}$/.test(ref.handle)) {
+    if (ref && typeof ref.handle === "string" && ARTIFACT_HANDLE.test(ref.handle)) {
       const entry = this.readArtifactIndex(runId)?.artifacts[ref.handle];
-      if (!entry || (ref.kind && entry.kind !== ref.kind)) throw Object.assign(new Error("artifact reference is invalid or has the wrong kind"), { code: "ARTIFACT_HANDLE_INVALID" });
+      if (!entry || typeof ref.kind !== "string" || !SAFE_KIND.test(ref.kind) || entry.kind !== ref.kind) throw Object.assign(new Error("artifact reference is invalid or has the wrong kind"), { code: "ARTIFACT_HANDLE_INVALID" });
       const target = this.safePath(runId, entry.relative_path);
       if (!fs.existsSync(target)) throw Object.assign(new Error("artifact has expired or is unavailable"), { code: "RESULT_EXPIRED" });
       const bytes = fs.readFileSync(target);

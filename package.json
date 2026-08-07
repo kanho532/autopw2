@@ -32,7 +32,6 @@
     "test:fuzz": "npm run build:m7 && node tools/verify-m8.mjs --fuzz",
     "test:perf": "npm run build:m7 && node tools/verify-m8.mjs --perf",
     "test:soak": "npm run build:m7 && node tools/verify-m8.mjs --soak",
-    "test:external": "npm run build:m7 && node tools/test-external-app.mjs",
     "verify:m8": "npm run verify:v2.1",
     "verify:v2.1": "npm run verify:m7 && npm run build:m7 && node tools/verify-m8.mjs",
     "verify:m9:baseline": "npm run verify:v2.1 && node tools/verify-m9-baseline.mjs",

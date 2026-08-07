@@ -32,12 +32,20 @@ try {
   check("m9.2-case-id-absolute-rejected", rejects(() => storage.caseDir(runId, path.resolve("escape")), "SAFE_PATH_INVALID"));
   check("m9.2-case-file-traversal-rejected", rejects(() => storage.writeCaseJson(runId, caseId, "../escape.json", {})));
   check("m9.2-artifact-file-traversal-rejected", rejects(() => storage.writeCaseArtifact(runId, caseId, "../escape.bin", "binary", "x")));
+  check("m9.2-empty-artifact-kind-rejected", rejects(() => storage.writeCaseArtifact(runId, caseId, "empty.bin", "", "x"), "ARTIFACT_KIND_INVALID"));
 
   const legacy = storage.writeArtifact(runId, "legacy.json", "legacy.json", "legacy");
   check("m9.2-legacy-handle-remains-readable", storage.readArtifactRef(runId, legacy).toString() === "legacy");
   const secondRef = storage.writeCaseArtifact(runId, "case_read", "response.json", "api-response", "response");
   check("m9.2-case-isolation-in-index", index.artifacts[ref.handle].relative_path.includes("case_create%3A1") && storage.readArtifactRef(runId, secondRef).toString() === "response");
   check("m9.2-index-schema-present", fs.existsSync(path.join(root, "packages/run-storage/schema/artifact-index.schema.json")));
+  const concurrent = await Promise.all(Array.from({ length: 50 }, async (_, index) => {
+    await Promise.resolve();
+    return new RunStorage(dataRoot).writeCaseArtifact(runId, "case_concurrent", "artifact_" + index + ".bin", "concurrent", Buffer.from(String(index)));
+  }));
+  const concurrentIndex = storage.readArtifactIndex(runId);
+  check("m9.2-concurrent-index-retains-all-artifacts", concurrentIndex && concurrent.length === 50 && Object.keys(concurrentIndex.artifacts).length >= 52);
+  check("m9.2-concurrent-artifacts-resolve", concurrent.every((ref) => storage.readArtifactRef(runId, ref).length > 0));
 } finally {
   fs.rmSync(dataRoot, { recursive: true, force: true });
 }

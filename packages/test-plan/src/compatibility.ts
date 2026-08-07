@@ -14,6 +14,7 @@ export function fromFixturePlan(fixturePlan: FixturePlanLike): TestPlan {
     coverage_eligible: true,
     cases: fixturePlan.cases.map((item) => ({
       case_id: item.case_id,
+      origin: { type: "migrated", source_ref: "fixture://plan", legacy_case_id: item.case_id },
       title: item.case_id,
       feature_id: item.feature_id,
       requirement_refs: ["legacy." + item.case_id],

@@ -15,6 +15,12 @@ export interface PlanOrigin {
   requirement_digest?: string;
 }
 
+export interface CaseOrigin {
+  type: PlanOriginType;
+  source_ref?: string;
+  legacy_case_id?: string;
+}
+
 export type LocatorRef =
   | { by: "role"; role: string; name?: string; exact?: boolean }
   | { by: "label"; text: string }
@@ -52,6 +58,7 @@ export type FixtureDefinition = Record<string, unknown>;
 
 export interface TestCase {
   case_id: string;
+  origin?: CaseOrigin;
   title: string;
   feature_id: string;
   requirement_refs: string[];

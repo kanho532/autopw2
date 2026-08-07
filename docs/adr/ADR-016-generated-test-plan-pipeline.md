@@ -32,7 +32,8 @@ while that migration is staged.
 ## Feature flags
 
 The Core accepts only trusted installation/Host configuration for these internal
-modes:
+mode names. In M9.0-M9.2 the future modes are declared for compatibility but
+fail closed as *_NOT_IMPLEMENTED; only Fixture + legacy Discovery execute:
 
 ```ts
 type PlanEngineMode = "fixture" | "declarative";

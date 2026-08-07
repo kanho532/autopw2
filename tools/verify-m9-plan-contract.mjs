@@ -5,6 +5,11 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const plan = await import(pathToFileURL(path.join(root, "packages/test-plan/dist/index.js")).href);
+const { default: Ajv2020 } = await import("ajv/dist/2020.js");
+const { default: addFormats } = await import("ajv-formats");
+const ajv = new Ajv2020({ strict: true });
+addFormats(ajv);
+const schemaValidator = ajv.compile(JSON.parse(fs.readFileSync(path.join(root, "packages/test-plan/schema/test-plan.schema.json"), "utf8")));
 let passed = 0;
 let failed = 0;
 function check(name, condition, detail = "") { if (condition) { passed += 1; console.log("PASS  " + name + (detail ? " (" + detail + ")" : "")); } else { failed += 1; console.log("FAIL  " + name + (detail ? " (" + detail + ")" : "")); } }
@@ -62,9 +67,13 @@ const validHybrid = { ...base, plan_id: "contract_hybrid", cases: [hybridCase] }
 check("m9.1-valid-ui-plan", plan.validatePlan(validUi).ok);
 check("m9.1-valid-api-plan", plan.validatePlan(validApi).ok);
 check("m9.1-valid-hybrid-plan", plan.validatePlan(validHybrid).ok);
+check("m9.1-schema-valid-ui-plan", schemaValidator(validUi));
+check("m9.1-schema-valid-api-plan", schemaValidator(validApi));
+check("m9.1-schema-valid-hybrid-plan", schemaValidator(validHybrid));
 check("m9.1-duplicate-case-id-rejected", !plan.validatePlan({ ...base, cases: [uiCase, uiCase] }).ok);
 check("m9.1-forbidden-action-rejected", !plan.validatePlan({ ...base, cases: [{ ...uiCase, steps: [{ action: "execute_js", code: "alert(1)" }] }] }).ok);
 check("m9.1-forbidden-property-rejected", !plan.validatePlan({ ...base, cases: [{ ...uiCase, steps: [{ action: "click", selector: "#save" }] }] }).ok);
+check("m9.1-required-step-field-rejected", !plan.validatePlan({ ...base, cases: [{ ...uiCase, steps: [{ action: "click" }] }] }).ok && !schemaValidator({ ...base, cases: [{ ...uiCase, steps: [{ action: "click" }] }] }));
 check("m9.1-undefined-variable-rejected", !plan.validatePlan({ ...base, cases: [{ ...uiCase, steps: [{ action: "fill", locator: { by: "id", value: "name" }, value: "${variables.missing}" }] }] }).ok);
 check("m9.1-environment-variable-rejected", !plan.validatePlan({ ...base, cases: [{ ...uiCase, steps: [{ action: "fill", locator: { by: "id", value: "name" }, value: "${env.SECRET}" }] }] }).ok);
 check("m9.1-unsafe-url-rejected", !plan.validatePlan({ ...base, cases: [{ ...uiCase, steps: [{ action: "goto", path: "https://evil.example" }] }] }).ok);

@@ -6,25 +6,92 @@
   "additionalProperties": false,
   "required": ["plan_schema", "plan_id", "generated_at", "origin", "coverage_eligible", "cases"],
   "properties": {
-    "plan_schema": { "const": "autopw.test-plan/1.0" },
-    "plan_id": { "type": "string", "pattern": "^[A-Za-z0-9_.:-]+$" },
-    "generated_at": { "type": "string", "format": "date-time" },
-    "origin": { "type": "object", "additionalProperties": false, "required": ["type"], "properties": { "type": { "enum": ["generated", "manual", "migrated", "bootstrap"] }, "source_ref": { "type": "string" }, "generator_version": { "type": "string" }, "discovery_digest": { "type": "string" }, "requirement_digest": { "type": "string" } } },
-    "coverage_eligible": { "type": "boolean" },
-    "target": { "type": "object", "additionalProperties": false, "properties": { "base_path": { "type": "string" } } },
-    "fixtures": { "type": "object" },
-    "cases": { "type": "array", "items": { "$ref": "#/$defs/case" }, "minItems": 1 }
+    "plan_schema": {"const": "autopw.test-plan/1.0"},
+    "plan_id": {"type": "string", "pattern": "^[A-Za-z0-9_.:-]+$"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "origin": {"$ref": "#/$defs/origin"},
+    "coverage_eligible": {"type": "boolean"},
+    "target": {"type": "object", "additionalProperties": false, "properties": {"base_path": {"type": "string"}}},
+    "fixtures": {"type": "object"},
+    "cases": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/case"}}
   },
   "$defs": {
-    "locator": { "type": "object", "oneOf": [
-      { "required": ["by", "role"], "properties": { "by": { "const": "role" }, "role": { "type": "string" }, "name": { "type": "string" }, "exact": { "type": "boolean" } } },
-      { "required": ["by", "text"], "properties": { "by": { "enum": ["label", "text"] }, "text": { "type": "string" }, "exact": { "type": "boolean" } } },
-      { "required": ["by", "value"], "properties": { "by": { "enum": ["test_id", "id"] }, "value": { "type": "string" } } },
-      { "required": ["by", "value", "authority"], "properties": { "by": { "const": "css" }, "value": { "type": "string" }, "authority": { "const": "trusted_manual" } } }
-    ] },
-    "step": { "type": "object", "required": ["action"], "properties": { "action": { "type": "string" } }, "additionalProperties": true },
-    "case": { "type": "object", "additionalProperties": false, "required": ["case_id", "title", "feature_id", "requirement_refs", "scenario", "priority", "effective_tier", "kind", "risk", "confidence", "execution_policy", "steps"], "properties": {
-      "case_id": { "type": "string", "pattern": "^[A-Za-z0-9_.:-]+$" }, "title": { "type": "string" }, "feature_id": { "type": "string" }, "requirement_refs": { "type": "array", "items": { "type": "string" } }, "scenario": { "type": "string" }, "priority": { "enum": ["P0", "P1", "P2"] }, "effective_tier": { "enum": ["smoke", "fast", "full"] }, "kind": { "enum": ["ui", "api", "hybrid"] }, "risk": { "enum": ["read_only", "mutating", "destructive"] }, "confidence": { "type": "number", "minimum": 0, "maximum": 1 }, "execution_policy": { "type": "object" }, "setup": { "type": "array", "items": { "$ref": "#/$defs/step" } }, "steps": { "type": "array", "items": { "$ref": "#/$defs/step" }, "minItems": 1 }, "cleanup": { "type": "array", "items": { "$ref": "#/$defs/step" } }
-    } }
+    "origin": {
+      "type": "object", "additionalProperties": false, "required": ["type"],
+      "properties": {
+        "type": {"enum": ["generated", "manual", "migrated", "bootstrap"]},
+        "source_ref": {"type": "string"}, "generator_version": {"type": "string"},
+        "discovery_digest": {"type": "string"}, "requirement_digest": {"type": "string"},
+        "legacy_case_id": {"type": "string"}
+      }
+    },
+    "caseOrigin": {
+      "type": "object", "additionalProperties": false, "required": ["type"],
+      "properties": {"type": {"enum": ["generated", "manual", "migrated", "bootstrap"]}, "source_ref": {"type": "string"}, "legacy_case_id": {"type": "string"}}
+    },
+    "locator": {
+      "oneOf": [
+        {"type": "object", "additionalProperties": false, "required": ["by", "role"], "properties": {"by": {"const": "role"}, "role": {"type": "string", "minLength": 1}, "name": {"type": "string"}, "exact": {"type": "boolean"}}},
+        {"type": "object", "additionalProperties": false, "required": ["by", "text"], "properties": {"by": {"enum": ["label", "text"]}, "text": {"type": "string", "minLength": 1}, "exact": {"type": "boolean"}}},
+        {"type": "object", "additionalProperties": false, "required": ["by", "value"], "properties": {"by": {"enum": ["test_id", "id"]}, "value": {"type": "string", "minLength": 1}}},
+        {"type": "object", "additionalProperties": false, "required": ["by", "value", "authority"], "properties": {"by": {"const": "css"}, "value": {"type": "string", "minLength": 1}, "authority": {"const": "trusted_manual"}}}
+      ]
+    },
+    "step": {
+      "oneOf": [
+        {"$ref": "#/$defs/goto"}, {"$ref": "#/$defs/reload"}, {"$ref": "#/$defs/locatorAction"}, {"$ref": "#/$defs/select"}, {"$ref": "#/$defs/fill"},
+        {"$ref": "#/$defs/press"}, {"$ref": "#/$defs/waitFor"}, {"$ref": "#/$defs/apiRequest"}, {"$ref": "#/$defs/expectVisible"},
+        {"$ref": "#/$defs/expectText"}, {"$ref": "#/$defs/expectValue"}, {"$ref": "#/$defs/expectCount"}, {"$ref": "#/$defs/expectUrl"},
+        {"$ref": "#/$defs/expectChecked"}, {"$ref": "#/$defs/noConsole"}, {"$ref": "#/$defs/expectStatus"}, {"$ref": "#/$defs/expectHeader"},
+        {"$ref": "#/$defs/expectJson"}, {"$ref": "#/$defs/expectJsonSchema"}, {"$ref": "#/$defs/setVariable"}, {"$ref": "#/$defs/captureText"},
+        {"$ref": "#/$defs/captureAttribute"}, {"$ref": "#/$defs/captureJson"}
+      ]
+    },
+    "goto": {"type": "object", "additionalProperties": false, "required": ["action", "path"], "properties": {"action": {"const": "goto"}, "path": {"$ref": "#/$defs/relativePath"}}},
+    "reload": {"type": "object", "additionalProperties": false, "required": ["action"], "properties": {"action": {"const": "reload"}}},
+    "locatorAction": {"type": "object", "additionalProperties": false, "required": ["action", "locator"], "properties": {"action": {"enum": ["click", "check", "uncheck"]}, "locator": {"$ref": "#/$defs/locator"}}},
+    "select": {"type": "object", "additionalProperties": false, "required": ["action", "locator", "value"], "properties": {"action": {"const": "select"}, "locator": {"$ref": "#/$defs/locator"}, "value": {"type": "string"}}},
+    "fill": {"type": "object", "additionalProperties": false, "required": ["action", "locator", "value"], "properties": {"action": {"const": "fill"}, "locator": {"$ref": "#/$defs/locator"}, "value": {"type": "string"}}},
+    "press": {"type": "object", "additionalProperties": false, "required": ["action", "locator", "key"], "properties": {"action": {"const": "press"}, "locator": {"$ref": "#/$defs/locator"}, "key": {"type": "string", "minLength": 1}}},
+    "waitFor": {"type": "object", "additionalProperties": false, "required": ["action"], "properties": {"action": {"const": "wait_for"}, "locator": {"$ref": "#/$defs/locator"}, "state": {"enum": ["visible", "hidden", "attached"]}, "timeout_ms": {"type": "integer", "minimum": 1}}},
+    "apiRequest": {"type": "object", "additionalProperties": false, "required": ["action", "method", "path"], "properties": {"action": {"const": "api_request"}, "method": {"enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]}, "path": {"$ref": "#/$defs/relativePath"}, "headers": {"type": "object", "additionalProperties": {"type": "string"}}, "body": {}, "save_as": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.:-]*$"}}},
+    "expectVisible": {"type": "object", "additionalProperties": false, "required": ["action", "locator"], "properties": {"action": {"enum": ["expect_visible", "expect_hidden"]}, "locator": {"$ref": "#/$defs/locator"}}},
+    "expectText": {"type": "object", "additionalProperties": false, "required": ["action", "locator"], "properties": {"action": {"const": "expect_text"}, "locator": {"$ref": "#/$defs/locator"}, "equals": {"type": "string"}, "contains": {"type": "string"}}, "oneOf": [{"properties": {"equals": {}}, "required": ["equals"], "not": {"properties": {"contains": {}}, "required": ["contains"]}}, {"properties": {"contains": {}}, "required": ["contains"], "not": {"properties": {"equals": {}}, "required": ["equals"]}}]},
+    "expectValue": {"type": "object", "additionalProperties": false, "required": ["action", "locator", "equals"], "properties": {"action": {"const": "expect_value"}, "locator": {"$ref": "#/$defs/locator"}, "equals": {"type": "string"}}},
+    "expectCount": {"type": "object", "additionalProperties": false, "required": ["action", "locator", "equals"], "properties": {"action": {"const": "expect_count"}, "locator": {"$ref": "#/$defs/locator"}, "equals": {"type": "integer", "minimum": 0}}},
+    "expectUrl": {"type": "object", "additionalProperties": false, "required": ["action", "path"], "properties": {"action": {"const": "expect_url"}, "path": {"$ref": "#/$defs/relativePath"}}},
+    "expectChecked": {"type": "object", "additionalProperties": false, "required": ["action", "locator", "checked"], "properties": {"action": {"const": "expect_checked"}, "locator": {"$ref": "#/$defs/locator"}, "checked": {"type": "boolean"}}},
+    "noConsole": {"type": "object", "additionalProperties": false, "required": ["action"], "properties": {"action": {"const": "expect_no_console_errors"}}},
+    "expectStatus": {"type": "object", "additionalProperties": false, "required": ["action", "source", "equals"], "properties": {"action": {"const": "expect_status"}, "source": {"type": "string", "minLength": 1}, "equals": {"type": "integer"}}},
+    "expectHeader": {"type": "object", "additionalProperties": false, "required": ["action", "source", "name"], "properties": {"action": {"const": "expect_header"}, "source": {"type": "string", "minLength": 1}, "name": {"type": "string", "minLength": 1}, "equals": {"type": "string"}, "contains": {"type": "string"}}, "oneOf": [{"properties": {"equals": {}}, "required": ["equals"], "not": {"properties": {"contains": {}}, "required": ["contains"]}}, {"properties": {"contains": {}}, "required": ["contains"], "not": {"properties": {"equals": {}}, "required": ["equals"]}}]},
+    "expectJson": {"type": "object", "additionalProperties": false, "required": ["action", "source", "path"], "properties": {"action": {"const": "expect_json"}, "source": {"type": "string", "minLength": 1}, "path": {"type": "string", "minLength": 1}, "equals": {}, "exists": {"type": "boolean"}}, "oneOf": [{"properties": {"equals": {}}, "required": ["equals"], "not": {"properties": {"exists": {}}, "required": ["exists"]}}, {"properties": {"exists": {}}, "required": ["exists"], "not": {"properties": {"equals": {}}, "required": ["equals"]}}]},
+    "expectJsonSchema": {"type": "object", "additionalProperties": false, "required": ["action", "source", "schema"], "properties": {"action": {"const": "expect_json_schema"}, "source": {"type": "string", "minLength": 1}, "schema": {}}},
+    "setVariable": {"type": "object", "additionalProperties": false, "required": ["action", "name", "value"], "properties": {"action": {"const": "set_variable"}, "name": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.:-]*$"}, "value": {}}},
+    "captureText": {"type": "object", "additionalProperties": false, "required": ["action", "locator", "save_as"], "properties": {"action": {"const": "capture_text"}, "locator": {"$ref": "#/$defs/locator"}, "save_as": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.:-]*$"}}},
+    "captureAttribute": {"type": "object", "additionalProperties": false, "required": ["action", "locator", "attribute", "save_as"], "properties": {"action": {"const": "capture_attribute"}, "locator": {"$ref": "#/$defs/locator"}, "attribute": {"type": "string", "minLength": 1}, "save_as": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.:-]*$"}}},
+    "captureJson": {"type": "object", "additionalProperties": false, "required": ["action", "source", "save_as"], "properties": {"action": {"const": "capture_json"}, "source": {"type": "string", "minLength": 1}, "path": {"type": "string"}, "save_as": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.:-]*$"}}},
+    "case": {
+      "type": "object", "additionalProperties": false,
+      "required": ["case_id", "title", "feature_id", "requirement_refs", "scenario", "priority", "effective_tier", "kind", "risk", "confidence", "execution_policy", "steps"],
+      "properties": {
+        "case_id": {"type": "string", "pattern": "^[A-Za-z0-9_.:-]+$"},
+        "origin": {"$ref": "#/$defs/caseOrigin"},
+        "title": {"type": "string", "minLength": 1},
+        "feature_id": {"type": "string", "minLength": 1},
+        "requirement_refs": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^[A-Za-z0-9_.:-]+$"}},
+        "scenario": {"enum": ["normal", "required_field", "invalid_input", "empty_state", "boundary", "service_error", "network_failure", "not_found", "persistence", "cors"]},
+        "priority": {"enum": ["P0", "P1", "P2"]}, "effective_tier": {"enum": ["smoke", "fast", "full"]},
+        "kind": {"enum": ["ui", "api", "hybrid"]}, "risk": {"enum": ["read_only", "mutating", "destructive"]},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "execution_policy": {"type": "object", "additionalProperties": false, "required": ["production_allowed"], "properties": {
+          "production_allowed": {"type": "boolean"}, "isolated_fixture_required": {"type": "boolean"},
+          "retries": {"type": "integer", "minimum": 0}, "timeout_ms": {"type": "integer", "minimum": 1}
+        }},
+        "setup": {"type": "array", "items": {"$ref": "#/$defs/step"}},
+        "steps": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/step"}},
+        "cleanup": {"type": "array", "items": {"$ref": "#/$defs/step"}}
+      }
+    },
+    "relativePath": {"type": "string", "pattern": "^(?:/|\\./|[A-Za-z0-9_.-])[A-Za-z0-9_./?=&:%{}$-]*$"}
   }
 }

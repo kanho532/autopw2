@@ -23,8 +23,10 @@ export const DEFAULT_ENGINE_MODES: Readonly<EngineModes> = Object.freeze({ plan_
 export function resolveEngineModes(input?: Partial<EngineModes>): EngineModes {
   const plan_engine = input?.plan_engine ?? DEFAULT_ENGINE_MODES.plan_engine;
   const discovery_engine = input?.discovery_engine ?? DEFAULT_ENGINE_MODES.discovery_engine;
-  if (plan_engine !== "fixture" && plan_engine !== "declarative") throw Object.assign(new Error("invalid plan engine mode"), { code: "INVALID_PLAN_ENGINE_MODE" });
-  if (discovery_engine !== "legacy" && discovery_engine !== "structured") throw Object.assign(new Error("invalid discovery engine mode"), { code: "INVALID_DISCOVERY_ENGINE_MODE" });
+  if (plan_engine === "declarative") throw Object.assign(new Error("declarative plan engine is not implemented in M9.0-M9.2"), { code: "PLAN_ENGINE_NOT_IMPLEMENTED" });
+  if (plan_engine !== "fixture") throw Object.assign(new Error("invalid plan engine mode"), { code: "INVALID_PLAN_ENGINE_MODE" });
+  if (discovery_engine === "structured") throw Object.assign(new Error("structured discovery engine is not implemented in M9.0-M9.2"), { code: "DISCOVERY_ENGINE_NOT_IMPLEMENTED" });
+  if (discovery_engine !== "legacy") throw Object.assign(new Error("invalid discovery engine mode"), { code: "INVALID_DISCOVERY_ENGINE_MODE" });
   return { plan_engine, discovery_engine };
 }
 interface PlannerArtifacts { input: PlannerInput; output: PlannerOutput; template: PlanTemplate; audit: Record<string, unknown>; }
