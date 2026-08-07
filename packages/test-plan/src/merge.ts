@@ -1,13 +1,15 @@
 import type { FixtureDefinition, TestCase, TestPlan } from "./model.js";
 import { stableStringify } from "./digest.js";
 import { normalizePlan } from "./normalize.js";
+import type { PlanValidationContext } from "./validator.js";
 
 export type PlanMergeMode = "auto" | "overlay" | "replace";
+export interface PlanMergeContext { manualAuthority: PlanValidationContext; }
 
-export function mergePlans(autoPlan: TestPlan, manualPlan: TestPlan | undefined, mode: PlanMergeMode): TestPlan {
+export function mergePlans(autoPlan: TestPlan, manualPlan: TestPlan | undefined, mode: PlanMergeMode, context: PlanMergeContext = { manualAuthority: { authority: "untrusted" } }): TestPlan {
   const auto = normalizePlan(autoPlan, { authority: "generated" });
   if (!manualPlan || mode === "auto") return auto;
-  const manual = normalizePlan(manualPlan, { authority: "trusted_manual" });
+  const manual = normalizePlan(asManualPlan(manualPlan), context.manualAuthority);
   if (mode === "replace") return manual;
 
   const fixtures = mergeFixtures(auto.fixtures || {}, manual.fixtures || {});
@@ -20,12 +22,20 @@ export function mergePlans(autoPlan: TestPlan, manualPlan: TestPlan | undefined,
     target: manual.target || auto.target,
     fixtures,
     cases: mergedCases
-  }, { authority: "trusted_manual" });
+  }, context.manualAuthority);
   return merged;
 }
 
 function withManualOrigin(item: TestCase, manual: TestPlan): TestCase {
   return { ...item, origin: { type: "manual", source_ref: manual.origin.source_ref || "plan://manual-overlay" } };
+}
+
+function asManualPlan(plan: TestPlan): TestPlan {
+  return {
+    ...plan,
+    origin: { type: "manual", source_ref: plan.origin.source_ref || "plan://manual" },
+    cases: plan.cases.map((item) => ({ ...item, origin: { type: "manual", source_ref: plan.origin.source_ref || "plan://manual" } }))
+  };
 }
 
 function mergeFixtures(auto: Record<string, FixtureDefinition>, manual: Record<string, FixtureDefinition>): Record<string, FixtureDefinition> {

@@ -13,7 +13,7 @@ const SAFE_KIND = /^[A-Za-z0-9_.:-]+$/;
 const SAFE_DISPLAY_NAME = /^[A-Za-z0-9_.-]+$/;
 const ARTIFACT_HANDLE = /^art_[a-f0-9]{64}$/;
 const ARTIFACT_INDEX_PATH = /^cases\/[A-Za-z0-9_.:%-]+\/artifacts\/art_[a-f0-9]{64}(?:\.[A-Za-z0-9_.-]+)?$/;
-const LOCK_LEASE_MS = 30_000;
+const LOCK_LEASE_MS = 120_000;
 interface LockHandle { fd: number; ownerToken: string; path: string; }
 
 export class RunStorage {
@@ -81,6 +81,7 @@ export class RunStorage {
     let handle: LockHandle | undefined;
     try {
       handle = this._acquireLock(lock);
+      if (handle === undefined) return undefined;
       if (!fs.existsSync(file)) return undefined;
       const current = JSON.parse(fs.readFileSync(file, "utf8")) as T;
       if (current.lease?.state_version !== expectedVersion) return undefined;
@@ -109,10 +110,17 @@ export class RunStorage {
         const metadata = JSON.parse(fs.readFileSync(lock, "utf8") || "{}") as { pid?: number; thread_id?: number; owner_token?: string; created_at?: number; expires_at?: number };
         const age = Date.now() - (metadata.created_at || stat.mtimeMs);
         if (age > LOCK_LEASE_MS || (typeof metadata.expires_at === "number" && Date.now() > metadata.expires_at)) {
-          fs.rmSync(lock, { force: true });
-          const fd = fs.openSync(lock, "wx");
-          fs.writeFileSync(fd, JSON.stringify({ pid: process.pid, thread_id: threadId, owner_token: ownerToken, created_at: Date.now(), expires_at: Date.now() + LOCK_LEASE_MS }), "utf8");
-          return { fd, ownerToken, path: lock };
+          const stalePath = lock + ".stale." + ownerToken;
+          try {
+            fs.renameSync(lock, stalePath);
+            const fd = fs.openSync(lock, "wx");
+            fs.writeFileSync(fd, JSON.stringify({ pid: process.pid, thread_id: threadId, owner_token: ownerToken, created_at: Date.now(), expires_at: Date.now() + LOCK_LEASE_MS }), "utf8");
+            try { fs.rmSync(stalePath, { force: true }); } catch { /* best effort stale cleanup */ }
+            return { fd, ownerToken, path: lock };
+          } catch (takeoverError) {
+            try { fs.rmSync(stalePath, { force: true }); } catch { /* another contender owns cleanup */ }
+            if ((takeoverError as NodeJS.ErrnoException).code !== "ENOENT") return undefined;
+          }
         }
       } catch (lockError) {
         if ((lockError as NodeJS.ErrnoException).code !== "ENOENT") return undefined;
@@ -134,13 +142,17 @@ export class RunStorage {
     fs.mkdirSync(path.dirname(target), { recursive: true });
     const temporary = target + ".tmp." + process.pid + "." + crypto.randomUUID();
     fs.writeFileSync(temporary, data);
-    try {
-      fs.renameSync(temporary, target);
-    } catch (error) {
-      if (!["EPERM", "EACCES", "ENOTEMPTY"].includes((error as NodeJS.ErrnoException).code || "")) throw error;
-      fs.rmSync(target, { force: true });
-      fs.renameSync(temporary, target);
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      try { fs.renameSync(temporary, target); return; }
+      catch (error) {
+        lastError = error;
+        if (!["EPERM", "EACCES", "ENOTEMPTY"].includes((error as NodeJS.ErrnoException).code || "")) throw error;
+        const sleeper = new Int32Array(new SharedArrayBuffer(4));
+        Atomics.wait(sleeper, 0, 0, 10);
+      }
     }
+    throw lastError;
   }
 
   appendEvent(runId: string, event: Omit<RunEvent, "seq" | "at"> & Partial<Pick<RunEvent, "at">>): RunEvent {
@@ -186,7 +198,7 @@ export class RunStorage {
   }
 
   private _acquireRetryingLock(lock: string): LockHandle {
-    for (let attempt = 0; attempt < 7_000; attempt += 1) {
+    for (let attempt = 0; attempt < 25_000; attempt += 1) {
       const handle = this._acquireLock(lock);
       if (handle !== undefined) return handle;
       const sleeper = new Int32Array(new SharedArrayBuffer(4));
