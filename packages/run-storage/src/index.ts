@@ -9,6 +9,7 @@ export interface RunEvent { seq: number; kind: string; phase?: string; at: strin
 
 const SAFE_ID = /^[A-Za-z0-9_.:-]+$/;
 const SAFE_KIND = /^[A-Za-z0-9_.:-]+$/;
+const SAFE_DISPLAY_NAME = /^[A-Za-z0-9_.:-]+$/;
 const ARTIFACT_HANDLE = /^art_[a-f0-9]{64}$/;
 const ARTIFACT_INDEX_PATH = /^cases\/[A-Za-z0-9_.:%-]+\/artifacts\/art_[a-f0-9]{64}(?:\.[A-Za-z0-9_.-]+)?$/;
 
@@ -186,7 +187,8 @@ export class RunStorage {
   private validateArtifactIndex(index: ArtifactIndex): void {
     if (!index || index.schema_version !== "1.0" || !index.artifacts || typeof index.artifacts !== "object" || Array.isArray(index.artifacts)) throw Object.assign(new Error("artifact index is invalid"), { code: "ARTIFACT_INDEX_INVALID" });
     for (const [handle, entry] of Object.entries(index.artifacts)) {
-      if (!ARTIFACT_HANDLE.test(handle) || !entry || !ARTIFACT_INDEX_PATH.test(entry.relative_path) || !SAFE_KIND.test(entry.kind) || !Number.isInteger(entry.size_bytes) || entry.size_bytes < 0 || !/^[a-f0-9]{64}$/.test(entry.sha256) || (entry.display_name !== undefined && !this.isSafeDisplayName(entry.display_name))) throw Object.assign(new Error("artifact index entry is invalid"), { code: "ARTIFACT_INDEX_INVALID" });
+      const storedName = entry && typeof entry.relative_path === "string" ? path.posix.basename(entry.relative_path) : "";
+      if (!ARTIFACT_HANDLE.test(handle) || !entry || !ARTIFACT_INDEX_PATH.test(entry.relative_path) || !(storedName === handle || storedName.startsWith(handle + ".")) || !SAFE_KIND.test(entry.kind) || !Number.isInteger(entry.size_bytes) || entry.size_bytes < 0 || !/^[a-f0-9]{64}$/.test(entry.sha256) || (entry.display_name !== undefined && !this.isSafeDisplayName(entry.display_name))) throw Object.assign(new Error("artifact index entry is invalid"), { code: "ARTIFACT_INDEX_INVALID" });
     }
   }
 
@@ -233,11 +235,11 @@ export class RunStorage {
   }
 
   private assertSafeFileName(value: string, label: string): void {
-    if (typeof value !== "string" || !value || value === "." || value === ".." || path.basename(value) !== value || value.includes("/") || value.includes("\\")) throw Object.assign(new Error(label + " is invalid"), { code: "SAFE_PATH_INVALID" });
+    if (typeof value !== "string" || !value || value === "." || value === ".." || path.basename(value) !== value || value.includes("/") || value.includes("\\") || !SAFE_DISPLAY_NAME.test(value) || value.endsWith(".")) throw Object.assign(new Error(label + " is invalid"), { code: "SAFE_PATH_INVALID" });
   }
 
   private isSafeDisplayName(value: unknown): value is string {
-    return typeof value === "string" && Boolean(value) && path.basename(value) === value && !value.includes("/") && !value.includes("\\");
+    return typeof value === "string" && Boolean(value) && path.basename(value) === value && !value.includes("/") && !value.includes("\\") && SAFE_DISPLAY_NAME.test(value) && !value.endsWith(".");
   }
 
   private assertRealpathWithin(base: string, target: string): void {

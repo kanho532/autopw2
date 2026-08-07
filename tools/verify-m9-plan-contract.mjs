@@ -84,8 +84,11 @@ const parityCases = [
   ["unsafe-parent-path", { ...base, cases: [{ ...uiCase, steps: [{ action: "goto", path: "/api/../../secret" }] }] }],
   ["invalid-target-path", { ...validUi, target: { base_path: "../outside" } }],
   ["invalid-origin-field", { ...validUi, origin: { type: "manual", legacy_case_id: "case_ui" } }],
+  ["invalid-origin-field-type", { ...validUi, origin: { type: "manual", source_ref: 123, discovery_digest: false } }],
+  ["invalid-locator-optional-types", { ...base, cases: [{ ...uiCase, steps: [{ action: "click", locator: { by: "role", role: "button", name: 123, exact: "yes" } }] }] }],
   ["invalid-timestamp", { ...validUi, generated_at: "not-a-date" }],
-  ["generated-css-plan", { ...base, origin: { type: "generated" }, cases: [{ ...uiCase, steps: [{ action: "click", locator: { by: "css", value: "#save", authority: "trusted_manual" } }] }] }]
+  ["generated-css-plan", { ...base, origin: { type: "generated" }, cases: [{ ...uiCase, steps: [{ action: "click", locator: { by: "css", value: "#save", authority: "trusted_manual" } }] }] }],
+  ["generated-case-origin-override", { ...base, origin: { type: "generated" }, cases: [{ ...uiCase, origin: { type: "manual" }, steps: [{ action: "click", locator: { by: "css", value: "#save", authority: "trusted_manual" } }] }] }]
 ];
 for (const [name, candidate] of parityCases) check("m9.1-schema-runtime-parity-" + name, Boolean(schemaValidator(candidate)) === plan.validatePlan(candidate).ok);
 
@@ -96,6 +99,7 @@ check("m9.1-digest-is-key-order-independent", plan.planDigest(normalized) === pl
 check("m9.1-loader-parses-json", plan.loadPlan(JSON.stringify(validUi)).cases[0].case_id === "case_ui");
 const merged = plan.mergePlans({ ...base, plan_id: "auto", origin: { type: "generated" }, cases: [uiCase] }, { ...base, plan_id: "manual", cases: [{ ...uiCase, title: "manual override" }] }, "overlay");
 check("m9.1-overlay-manual-case-wins", merged.cases.length === 1 && merged.cases[0].title === "manual override");
+check("m9.1-overlay-origin-is-mixed", merged.origin.type === "mixed" && merged.cases[0].origin?.type === "manual");
 const replaced = plan.mergePlans({ ...base, cases: [uiCase] }, { ...base, cases: [apiCase] }, "replace");
 check("m9.1-replace-uses-explicit-plan", replaced.cases.length === 1 && replaced.cases[0].case_id === "case_api");
 

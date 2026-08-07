@@ -57,6 +57,7 @@ function validateCase(item: TestCase, plan: Record<string, unknown>, errors: str
   else if (seen.has(item.case_id)) errors.push(prefix + ": duplicate case_id");
   else seen.add(item.case_id);
   if (item.origin !== undefined && !isCaseOrigin(item.origin)) errors.push(prefix + ": invalid origin");
+  if (isObject(plan.origin) && plan.origin.type === "generated" && item.origin !== undefined && item.origin.type !== "generated") errors.push(prefix + ": generated plan cannot override case origin");
   for (const key of ["title", "feature_id"] as const) if (typeof item[key] !== "string" || !item[key]) errors.push(prefix + ": " + key + " is required");
   if (!Array.isArray(item.requirement_refs) || item.requirement_refs.length === 0 || item.requirement_refs.some((value) => typeof value !== "string" || !ID_PATTERN.test(value)) || new Set(item.requirement_refs).size !== item.requirement_refs.length) errors.push(prefix + ": invalid requirement_refs");
   if (!SCENARIOS.includes(item.scenario)) errors.push(prefix + ": invalid scenario");
@@ -128,6 +129,8 @@ function validateLocator(locator: unknown, plan: Record<string, unknown>, errors
   const allowed = locator.by === "role" ? ["by", "role", "name", "exact"] : locator.by === "label" || locator.by === "text" ? ["by", "text", "exact"] : ["by", "value"];
   if (locator.by === "css") allowed.push("authority");
   if (!onlyKeys(locator, allowed)) errors.push(prefix + ": locator has unknown fields");
+  if (locator.by === "role" && locator.name !== undefined && typeof locator.name !== "string") errors.push(prefix + ": locator.name must be a string");
+  if ((locator.by === "role" || locator.by === "label" || locator.by === "text") && locator.exact !== undefined && typeof locator.exact !== "boolean") errors.push(prefix + ": locator.exact must be a boolean");
   if ((AUTOMATIC_LOCATOR_KINDS as readonly string[]).includes(locator.by)) {
     const value = locator.by === "role" ? locator.role : locator.by === "label" || locator.by === "text" ? locator.text : locator.value;
     if (typeof value !== "string" || !value) errors.push(prefix + ": locator value is required");
@@ -145,8 +148,9 @@ function isSafeRelativePath(value: string): boolean { return Boolean(value) && !
 function hasParentSegment(value: string): boolean { return value.split("/").some((segment) => segment === ".."); }
 function validVariableName(value: unknown): value is string { return typeof value === "string" && VARIABLE_NAME_PATTERN.test(value); }
 function isIsoDate(value: string): boolean { return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value) && !Number.isNaN(Date.parse(value)); }
-function isPlanOrigin(value: unknown): boolean { return isObject(value) && ["generated", "manual", "migrated", "bootstrap"].includes(String(value.type)) && onlyKeys(value, ["type", "source_ref", "generator_version", "discovery_digest", "requirement_digest"]); }
-function isCaseOrigin(value: unknown): boolean { return isObject(value) && ["generated", "manual", "migrated", "bootstrap"].includes(String(value.type)) && onlyKeys(value, ["type", "source_ref", "legacy_case_id"]); }
+function isPlanOrigin(value: unknown): boolean { return isObject(value) && ["generated", "manual", "migrated", "bootstrap", "mixed"].includes(String(value.type)) && onlyKeys(value, ["type", "source_ref", "generator_version", "discovery_digest", "requirement_digest"]) && optionalStrings(value, ["source_ref", "generator_version", "discovery_digest", "requirement_digest"]); }
+function isCaseOrigin(value: unknown): boolean { return isObject(value) && ["generated", "manual", "migrated", "bootstrap"].includes(String(value.type)) && onlyKeys(value, ["type", "source_ref", "legacy_case_id"]) && optionalStrings(value, ["source_ref", "legacy_case_id"]); }
+function optionalStrings(value: Record<string, unknown>, keys: string[]): boolean { return keys.every((key) => value[key] === undefined || typeof value[key] === "string"); }
 function onlyKeys(value: Record<string, unknown>, allowed: string[]): boolean { return Object.keys(value).every((key) => allowed.includes(key)); }
 function isObject(value: unknown): value is Record<string, any> { return Boolean(value) && typeof value === "object" && !Array.isArray(value); }
 function requireString(value: Record<string, any>, key: string, errors: string[], pattern: RegExp | undefined, label: string): void { if (typeof value[key] !== "string" || (pattern && !pattern.test(value[key]))) errors.push(label + " is invalid"); }

@@ -25,7 +25,7 @@
     "origin": {
       "type": "object", "additionalProperties": false, "required": ["type"],
       "properties": {
-        "type": {"enum": ["generated", "manual", "migrated", "bootstrap"]},
+        "type": {"enum": ["generated", "manual", "migrated", "bootstrap", "mixed"]},
         "source_ref": {"type": "string"}, "generator_version": {"type": "string"},
         "discovery_digest": {"type": "string"}, "requirement_digest": {"type": "string"}
       }

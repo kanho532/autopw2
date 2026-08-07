@@ -18,7 +18,7 @@
           "kind": { "type": "string", "pattern": "^[A-Za-z0-9_.:-]+$" },
           "size_bytes": { "type": "integer", "minimum": 0 },
           "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
-          "display_name": { "type": "string", "pattern": "^[A-Za-z0-9_.:-]+$" }
+          "display_name": { "type": "string", "pattern": "^[A-Za-z0-9_.:-]+$", "not": { "pattern": "\\.$" } }
         }
       }
     }

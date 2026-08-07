@@ -16,6 +16,7 @@ export function mergePlans(autoPlan: TestPlan, manualPlan: TestPlan | undefined,
   for (const item of manual.cases) if (!auto.cases.some((candidate) => candidate.case_id === item.case_id)) mergedCases.push(withManualOrigin(item, manual));
   const merged = normalizePlan({
     ...auto,
+    origin: { ...auto.origin, type: "mixed", source_ref: manual.origin.source_ref || auto.origin.source_ref || "plan://overlay" },
     target: manual.target || auto.target,
     fixtures,
     cases: mergedCases
@@ -24,7 +25,7 @@ export function mergePlans(autoPlan: TestPlan, manualPlan: TestPlan | undefined,
 }
 
 function withManualOrigin(item: TestCase, manual: TestPlan): TestCase {
-  return { ...item, origin: item.origin || { type: "manual", source_ref: manual.origin.source_ref || "plan://manual-overlay" } };
+  return { ...item, origin: { type: "manual", source_ref: manual.origin.source_ref || "plan://manual-overlay" } };
 }
 
 function mergeFixtures(auto: Record<string, FixtureDefinition>, manual: Record<string, FixtureDefinition>): Record<string, FixtureDefinition> {

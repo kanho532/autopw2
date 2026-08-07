@@ -1,6 +1,7 @@
 export const TEST_PLAN_SCHEMA = "autopw.test-plan/1.0" as const;
 
-export type PlanOriginType = "generated" | "manual" | "migrated" | "bootstrap";
+export type PlanOriginType = "generated" | "manual" | "migrated" | "bootstrap" | "mixed";
+export type CaseOriginType = Exclude<PlanOriginType, "mixed">;
 export type Scenario = "normal" | "required_field" | "invalid_input" | "empty_state" | "boundary" | "service_error" | "network_failure" | "not_found" | "persistence" | "cors";
 export type Priority = "P0" | "P1" | "P2";
 export type EffectiveTier = "smoke" | "fast" | "full";
@@ -16,7 +17,7 @@ export interface PlanOrigin {
 }
 
 export interface CaseOrigin {
-  type: PlanOriginType;
+  type: CaseOriginType;
   source_ref?: string;
   legacy_case_id?: string;
 }

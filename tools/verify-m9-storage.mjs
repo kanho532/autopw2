@@ -2,10 +2,17 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { Worker, isMainThread, parentPort, workerData } from "node:worker_threads";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const { RunStorage } = await import(pathToFileURL(path.join(root, "packages/run-storage/dist/index.js")).href);
+if (!isMainThread) {
+  const workerStorage = new RunStorage(workerData.dataRoot);
+  for (let index = 0; index < 20; index += 1) workerStorage.writeCaseArtifact(workerData.runId, "case_worker", "worker_" + workerData.workerId + "_" + index + ".bin", "worker", Buffer.from(workerData.workerId + ":" + index));
+  parentPort.postMessage({ ok: true });
+  process.exit(0);
+}
 const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "autopw-m9-storage-"));
 const storage = new RunStorage(dataRoot);
 let passed = 0;
@@ -26,6 +33,11 @@ try {
   const index = JSON.parse(fs.readFileSync(indexPath, "utf8"));
   check("m9.2-artifact-index-written", index.schema_version === "1.0" && /^cases\/case_create%3A1\/artifacts\/art_[a-f0-9]{64}\.zip$/.test(index.artifacts[ref.handle]?.relative_path) && index.artifacts[ref.handle]?.display_name === "trace.zip");
   check("m9.2-index-records-kind-size-digest", index.artifacts[ref.handle].kind === "playwright-trace" && index.artifacts[ref.handle].size_bytes === 10 && /^[a-f0-9]{64}$/.test(index.artifacts[ref.handle].sha256));
+  const corruptedIndex = structuredClone(index);
+  corruptedIndex.artifacts[ref.handle].relative_path = corruptedIndex.artifacts[ref.handle].relative_path.replace(ref.handle, "art_" + "b".repeat(64));
+  fs.writeFileSync(indexPath, JSON.stringify(corruptedIndex));
+  check("m9.2-index-handle-path-binding-rejected", rejects(() => storage.readArtifactIndex(runId), "ARTIFACT_INDEX_INVALID"));
+  fs.writeFileSync(indexPath, JSON.stringify(index));
   check("m9.2-index-handle-resolves", storage.readArtifactRef(runId, ref).toString() === "trace-data");
   check("m9.2-kind-confusion-rejected", rejects(() => storage.readArtifactRef(runId, { ...ref, kind: "screenshot" }), "ARTIFACT_HANDLE_INVALID"));
   check("m9.2-case-id-traversal-rejected", rejects(() => storage.caseDir(runId, "../escape"), "SAFE_PATH_INVALID"));
@@ -33,6 +45,7 @@ try {
   check("m9.2-case-file-traversal-rejected", rejects(() => storage.writeCaseJson(runId, caseId, "../escape.json", {})));
   check("m9.2-artifact-file-traversal-rejected", rejects(() => storage.writeCaseArtifact(runId, caseId, "../escape.bin", "binary", "x")));
   check("m9.2-empty-artifact-kind-rejected", rejects(() => storage.writeCaseArtifact(runId, caseId, "empty.bin", "", "x"), "ARTIFACT_KIND_INVALID"));
+  check("m9.2-unsafe-display-name-rejected", rejects(() => storage.writeCaseArtifact(runId, caseId, "my trace.zip", "trace", "x")) && rejects(() => storage.writeCaseArtifact(runId, caseId, "trace.", "trace", "x")));
   const firstVersion = storage.writeCaseArtifact(runId, caseId, "immutable.zip", "trace", "version-a");
   const secondVersion = storage.writeCaseArtifact(runId, caseId, "immutable.zip", "trace", "version-b");
   check("m9.2-same-display-name-uses-distinct-immutable-paths", firstVersion.handle !== secondVersion.handle && storage.readArtifactRef(runId, firstVersion).toString() === "version-a" && storage.readArtifactRef(runId, secondVersion).toString() === "version-b");
@@ -42,13 +55,16 @@ try {
   const secondRef = storage.writeCaseArtifact(runId, "case_read", "response.json", "api-response", "response");
   check("m9.2-case-isolation-in-index", index.artifacts[ref.handle].relative_path.includes("case_create%3A1") && storage.readArtifactRef(runId, secondRef).toString() === "response");
   check("m9.2-index-schema-present", fs.existsSync(path.join(root, "packages/run-storage/schema/artifact-index.schema.json")));
-  const concurrent = await Promise.all(Array.from({ length: 50 }, async (_, index) => {
-    await Promise.resolve();
-    return new RunStorage(dataRoot).writeCaseArtifact(runId, "case_concurrent", "artifact_" + index + ".bin", "concurrent", Buffer.from(String(index)));
-  }));
+  const concurrent = await Promise.all(Array.from({ length: 8 }, (_, workerId) => new Promise((resolve, reject) => {
+    const worker = new Worker(new URL("./verify-m9-storage.mjs", import.meta.url), { workerData: { dataRoot, runId, workerId } });
+    worker.once("message", resolve);
+    worker.once("error", reject);
+  })));
   const concurrentIndex = storage.readArtifactIndex(runId);
-  check("m9.2-concurrent-index-retains-all-artifacts", concurrentIndex && concurrent.length === 50 && Object.keys(concurrentIndex.artifacts).length >= 52);
-  check("m9.2-concurrent-artifacts-resolve", concurrent.every((ref) => storage.readArtifactRef(runId, ref).length > 0));
+  check("m9.2-concurrent-index-retains-all-artifacts", concurrentIndex && concurrent.length === 8 && Object.keys(concurrentIndex.artifacts).length >= 164);
+  check("m9.2-concurrent-artifacts-resolve", Object.values(concurrentIndex.artifacts).filter((entry) => entry.kind === "worker").every((entry) => storage.readArtifactRef(runId, { handle: Object.keys(concurrentIndex.artifacts).find((handle) => concurrentIndex.artifacts[handle] === entry), kind: entry.kind }).length > 0));
+  const leftovers = fs.readdirSync(dataRoot, { recursive: true }).filter((name) => name.endsWith(".lock") || name.includes(".tmp."));
+  check("m9.2-concurrent-no-lock-or-temp-leftovers", leftovers.length === 0);
 } finally {
   fs.rmSync(dataRoot, { recursive: true, force: true });
 }
