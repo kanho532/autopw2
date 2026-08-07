@@ -25,6 +25,7 @@ npm run verify:v2.1
 npm run verify:m9:baseline
 npm run verify:m9:plan-contract
 npm run verify:m9:storage
+npm run verify:m9:runner
 ```
 `verify:m6` includes the M1–M6 acceptance gates. M2–M6 install and use the pinned Playwright Chromium fixture where the vertical slice requires it.
 `verify:m9:baseline` reruns the M0–M8 chain and checks the normalized M9.0 Golden Snapshot.

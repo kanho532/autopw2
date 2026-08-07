@@ -108,7 +108,19 @@ export class RunStorage {
       const code = (error as NodeJS.ErrnoException).code;
       if (code !== "EEXIST" && code !== "EPERM" && code !== "EACCES") throw error;
       try {
-        if (!fs.statSync(lock).isDirectory()) return undefined;
+        const lockStat = fs.statSync(lock);
+        if (!lockStat.isDirectory()) {
+          // Older CAS writers used a file lock. Reclaim only an expired
+          // metadata-bearing orphan; a live legacy lock remains authoritative.
+          let metadata: LockMetadata = {};
+          try { metadata = JSON.parse(fs.readFileSync(lock, "utf8")) as LockMetadata; } catch { /* malformed orphan */ }
+          const expiresAt = metadata.expires_at ?? (typeof metadata.created_at === "number" ? metadata.created_at + LOCK_LEASE_MS : 0);
+          if (expiresAt > Date.now()) return undefined;
+          fs.rmSync(lock, { force: true });
+          try { fs.mkdirSync(lock); } catch { return undefined; }
+          if (!this._acquireClaim(lock)) return undefined;
+          try { return this._createClaimedOwner(lock, ownerToken); } finally { this._releaseClaim(lock); }
+        }
         const current = this._currentOwner(lock);
         if (current !== undefined && !this._isExpired(current.metadata)) return undefined;
         if (!this._acquireClaim(lock)) return undefined;

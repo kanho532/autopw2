@@ -1,116 +1,277 @@
 import crypto from "node:crypto";
-import { chromium, firefox, webkit, type Browser, type BrowserType } from "playwright";
-import type { FixtureCase, FixturePlan, FixtureStep, FixtureVariant } from "@autopw/execution-fixture";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { chromium, firefox, webkit, type APIResponse, type Browser, type BrowserContext, type BrowserType, type Page } from "playwright";
+import { assertValidPlan, fromFixturePlan, normalizePlan, resolveInterpolation, type EffectiveTier, type LocatorRef, type TestCase, type TestPlan, type TestStep, type PlanValidationContext } from "@autopw/test-plan";
+import type { FixturePlan, FixtureVariant } from "@autopw/execution-fixture";
 import type { ArtifactRef } from "@autopw/run-storage";
 import { RunStorage } from "@autopw/run-storage";
 import { BrowserNetworkGuard, redactSecrets } from "@autopw/security";
 
 export type BrowserName = "chromium" | "firefox" | "webkit";
 export interface ExecutionMatrix { browsers?: BrowserName[]; viewports?: { width: number; height: number }[]; locales?: string[]; auth_scope_ids?: string[]; }
-export interface ExecutionResult { execution_id: string; case_id: string; batch_id: string; browser: BrowserName; viewport: { width: number; height: number }; locale: string; auth_scope_id: string; status: "PASSED" | "FAILED" | "BLOCKED_RESUME" | "INFRA_BLOCKED"; attempts: Record<string, unknown>[]; evidence_refs: ArtifactRef[]; at: string; error?: string; classification?: "PRODUCT_DEFECT" | "TEST_DEFECT" | "INFRA_DEFECT"; redaction_status?: "COMPLETE" | "INCOMPLETE"; }
+export interface ExecutionPathStep {
+  step_index: number;
+  phase: "setup" | "test" | "cleanup";
+  action: string;
+  locator_ref?: string;
+  endpoint_ref?: string;
+  input_summary?: unknown;
+  output_summary?: unknown;
+  value_redacted?: string;
+  status: "PASSED" | "FAILED" | "SKIPPED" | "BLOCKED";
+  started_at: string;
+  ended_at: string;
+  finished_at: string;
+  duration_ms: number;
+  error?: string;
+  evidence_refs: ArtifactRef[];
+}
+export interface StepResult extends ExecutionPathStep { step_index: number; }
+export interface ExecutionResult {
+  execution_id: string; case_id: string; batch_id: string; browser: BrowserName;
+  viewport: { width: number; height: number }; locale: string; auth_scope_id: string;
+  status: "PASSED" | "FAILED" | "BLOCKED_RESUME" | "INFRA_BLOCKED";
+  stability?: "STABLE" | "FLAKY";
+  attempts: Record<string, unknown>[]; path: ExecutionPathStep[]; evidence_refs: ArtifactRef[]; at: string;
+  cleanup_status?: "PASSED" | "FAILED" | "SKIPPED";
+  error?: string; classification?: "PRODUCT_DEFECT" | "TEST_DEFECT" | "INFRA_DEFECT"; redaction_status?: "COMPLETE" | "INCOMPLETE";
+}
 export interface ExecutionManifest { batches: Record<string, unknown>[]; instances: Record<string, unknown>[]; }
 export interface ExecutionOutcome { manifest: ExecutionManifest; results: ExecutionResult[]; evidence: Record<string, unknown>[]; }
 
-export class PlaywrightFixtureRunner {
-  async run({ runId, baseUrl, plan, variant, storage, allowedOrigins = [new URL(baseUrl).origin], matrix, tier = "fast" }: { runId: string; baseUrl: string; plan: FixturePlan; variant: FixtureVariant; storage: RunStorage; allowedOrigins?: string[]; matrix?: ExecutionMatrix; tier?: "smoke" | "fast" | "full" }): Promise<ExecutionOutcome> {
-    const batches = buildBatches(matrix);
-    const network = new BrowserNetworkGuard(allowedOrigins);
+export interface PlanRunnerOptions {
+  runId: string;
+  baseUrl: string;
+  plan: TestPlan;
+  storage: RunStorage;
+  allowedOrigins?: string[];
+  matrix?: ExecutionMatrix;
+  tier?: EffectiveTier;
+  trace?: boolean;
+  planAuthority?: PlanValidationContext["authority"];
+  production?: boolean;
+  fixtureVariant?: FixtureVariant;
+  blockedCaseIds?: Record<string, string>;
+}
+interface FixtureRunnerOptions {
+  runId: string; baseUrl: string; plan: FixturePlan; variant: FixtureVariant; storage: RunStorage;
+  allowedOrigins?: string[]; matrix?: ExecutionMatrix; tier?: EffectiveTier; trace?: boolean;
+}
+
+/** Executes the declarative TestPlan contract. It never evaluates plan-provided code. */
+export class PlaywrightPlanRunner {
+  async run(options: PlanRunnerOptions): Promise<ExecutionOutcome> {
+    const authority = options.planAuthority || "untrusted";
+    let plan: TestPlan;
+    try { plan = fromNormalizedPlan(options.plan, authority); }
+    catch (error) { throw Object.assign(error instanceof Error ? error : new Error(String(error)), { classification: "TEST_DEFECT" as const }); }
+    const batches = buildBatches(options.matrix);
+    const network = new BrowserNetworkGuard(options.allowedOrigins || [new URL(options.baseUrl).origin]);
     const results: ExecutionResult[] = [];
     const evidence: Record<string, unknown>[] = [];
-    const instances = batches.flatMap((batch) => plan.cases.map((item) => ({ execution_id: executionId(item.case_id, batch.batch_id), case_id: item.case_id, batch_id: batch.batch_id, status: "NOT_RUN" })));
     const batchRecords: Record<string, unknown>[] = [];
+    const instances = batches.flatMap((batch) => plan.cases.map((item) => ({ execution_id: executionId(item.case_id, batch.batch_id), case_id: item.case_id, batch_id: batch.batch_id, status: "NOT_RUN" })));
+
     for (const batch of batches) {
-      const batchRecord = { ...batch, tier, case_ids: plan.cases.map((item) => item.case_id) };
-      batchRecords.push(batchRecord);
+      batchRecords.push({ ...batch, tier: options.tier || "fast", case_ids: plan.cases.map((item) => item.case_id) });
       let browser: Browser | undefined;
       const completed = new Set<string>();
       try {
         browser = await browserType(batch.browser).launch({ headless: true });
         for (const item of plan.cases) {
-          const id = executionId(item.case_id, batch.batch_id);
-          if (variant === "incomplete" && item.case_id === "case_console_health") {
-            const blocked = makeResult({ item, batch, status: "BLOCKED_RESUME", error: "fixture capability intentionally blocked" });
-            results.push(blocked); completed.add(item.case_id); persistResult(storage, runId, blocked, evidence); continue;
+          const blockedReason = options.blockedCaseIds?.[item.case_id];
+          if (blockedReason) {
+            const blocked = makeResult({ item, batch, status: "BLOCKED_RESUME", error: blockedReason, classification: "INFRA_DEFECT" });
+            results.push(blocked); completed.add(item.case_id); persistResult(options.storage, options.runId, blocked, evidence); continue;
           }
-          const result = await this.runCase({ runId, baseUrl, item, variant, browser, batch, storage, network });
-          results.push(result); completed.add(item.case_id); persistResult(storage, runId, result, evidence);
-          if (id.length === 0) throw new Error("execution id generation failed");
+          const result = await this.runCase({ ...options, plan, item, batch, browser, network });
+          results.push(result); completed.add(item.case_id); persistResult(options.storage, options.runId, result, evidence);
         }
       } catch (error) {
         for (const item of plan.cases) if (!completed.has(item.case_id)) {
-          const blocked = makeResult({ item, batch, status: "INFRA_BLOCKED", error: error instanceof Error ? error.message : String(error), classification: "INFRA_DEFECT" });
-          results.push(blocked); persistResult(storage, runId, blocked, evidence);
+          const blocked = makeResult({ item, batch, status: "INFRA_BLOCKED", error: redact(errorMessage(error)), classification: "INFRA_DEFECT" });
+          results.push(blocked); persistResult(options.storage, options.runId, blocked, evidence);
         }
       } finally { if (browser) await browser.close().catch(() => undefined); }
     }
-    for (const instance of instances) {
-      const result = results.find((item) => item.execution_id === instance.execution_id);
-      instance.status = result?.status || "INFRA_BLOCKED";
-    }
+    for (const instance of instances) instance.status = results.find((item) => item.execution_id === instance.execution_id)?.status || "INFRA_BLOCKED";
     const manifest: ExecutionManifest = { batches: batchRecords, instances };
-    storage.writeJson(runId, "execution-manifest.json", manifest);
-    storage.writeJson(runId, "execution-results.json", results);
+    options.storage.writeJson(options.runId, "execution-manifest.json", manifest);
+    options.storage.writeJson(options.runId, "execution-results.json", results);
     const redactionComplete = results.every((result) => result.redaction_status !== "INCOMPLETE");
-    storage.writeJson(runId, "evidence-manifest.json", { execution_id: results[0]?.execution_id || executionId("none", batches[0]?.batch_id || "none"), items: evidence, redacted: redactionComplete, redaction_status: redactionComplete ? "COMPLETE" : "INCOMPLETE" });
+    options.storage.writeJson(options.runId, "evidence-manifest.json", { execution_id: results[0]?.execution_id || executionId("none", batches[0]?.batch_id || "none"), items: evidence, redacted: redactionComplete, redaction_status: redactionComplete ? "COMPLETE" : "INCOMPLETE" });
     return { manifest, results, evidence };
   }
 
-  private async runCase({ runId, baseUrl, item, variant, browser, batch, storage, network }: { runId: string; baseUrl: string; item: FixtureCase; variant: FixtureVariant; browser: Browser; batch: MatrixBatch; storage: RunStorage; network: BrowserNetworkGuard }): Promise<ExecutionResult> {
-    const execution_id = executionId(item.case_id, batch.batch_id);
+  private async runCase({ runId, baseUrl, plan, item, batch, browser, storage, network, trace: traceEnabled = true, fixtureVariant, production = false }: PlanRunnerOptions & { plan: TestPlan; item: TestCase; batch: MatrixBatch; browser: Browser; network: BrowserNetworkGuard }): Promise<ExecutionResult> {
+    const retries = item.execution_policy.retries || 0;
+    const attempts: Record<string, unknown>[] = [];
+    let last: AttemptOutcome | undefined;
+    for (let attempt = 0; attempt <= retries; attempt += 1) {
+      const started = Date.now();
+      last = await this.runAttempt({ runId, baseUrl, plan, item, batch, browser, storage, network, traceEnabled, fixtureVariant, production });
+      attempts.push({ attempt: attempt + 1, status: last.status, classification: last.classification, error: last.error, duration_ms: Date.now() - started });
+      if (last.status === "PASSED") break;
+    }
+    if (!last) throw new Error("no execution attempt was made");
+    const flaky = attempts.length > 1 && last.status === "PASSED" && attempts.slice(0, -1).some((item) => item.status !== "PASSED");
+    const result = makeResult({ item, batch, status: last.status, attempts, path: last.path, evidence_refs: last.evidence_refs, error: last.error, classification: last.classification, redaction_status: last.redaction_status });
+    result.cleanup_status = last.cleanup_status;
+    if (flaky) result.stability = "FLAKY";
+    storage.writeCaseJson(runId, item.case_id, "case.json", { case_id: item.case_id, title: item.title, feature_id: item.feature_id, kind: item.kind, risk: item.risk, requirement_refs: item.requirement_refs, execution_id: result.execution_id, status: result.status, stability: result.stability || "STABLE" });
+    storage.writeCaseJson(runId, item.case_id, "execution.json", result);
+    storage.writeCaseJson(runId, item.case_id, "steps.json", result.path);
+    storage.writeCaseJson(runId, item.case_id, "path.json", result.path);
+    return result;
+  }
+
+  private async runAttempt({ runId, baseUrl, plan, item, batch, browser, storage, network, traceEnabled, fixtureVariant, production }: { runId: string; baseUrl: string; plan: TestPlan; item: TestCase; batch: MatrixBatch; browser: Browser; storage: RunStorage; network: BrowserNetworkGuard; traceEnabled: boolean; fixtureVariant?: FixtureVariant; production: boolean }): Promise<AttemptOutcome> {
+    if (production && (!item.execution_policy.production_allowed || item.risk !== "read_only")) return { status: "FAILED", path: [], evidence_refs: [], error: "production policy forbids this case", classification: "TEST_DEFECT", redaction_status: "COMPLETE", cleanup_status: "SKIPPED" };
     const context = await browser.newContext({ viewport: batch.viewport, locale: batch.locale, serviceWorkers: "block" });
-    await context.route("**/*", async (route) => {
-      try { await network.assertAllowedAsync(route.request().url()); await route.continue(); }
-      catch { await route.abort("blockedbyclient"); }
-    });
-    const page = await context.newPage();
-    const consoleErrors: string[] = [];
-    const failedRequests: string[] = [];
-    page.on("console", (message) => { if (message.type() === "error") consoleErrors.push(message.text()); });
-    page.on("requestfailed", (request) => failedRequests.push(request.url()));
+    const tracePath = traceEnabled && (item.kind === "ui" || item.kind === "hybrid") ? path.join(os.tmpdir(), `autopw-${executionId(item.case_id, batch.batch_id)}-${crypto.randomUUID()}.trace.zip`) : undefined;
+    const scopes: Record<string, unknown> = { fixtures: plan.fixtures || {}, variables: {}, responses: {} };
+    const pathResults: ExecutionPathStep[] = [];
     const evidenceRefs: ArtifactRef[] = [];
+    const consoleErrors: string[] = [];
+    let page: Page | undefined;
+    let cleanupStatus: "PASSED" | "FAILED" | "SKIPPED" = "SKIPPED";
+    let testFailure: Failure | undefined;
+    let redactionStatus: "COMPLETE" | "INCOMPLETE" = "COMPLETE";
     try {
-      for (const step of item.steps) await this.executeStep(page, step, baseUrl, variant, consoleErrors);
-      const screenshot = await this.captureScreenshot(page);
-      evidenceRefs.push(storage.writeArtifact(runId, execution_id + ".png", "screenshot", screenshot));
-      const consoleRef = storage.writeArtifact(runId, execution_id + ".console.json", "console.json", JSON.stringify(redactSecrets({ errors: consoleErrors.map(redact), failed_requests: failedRequests.map(redact) }), null, 2));
-      evidenceRefs.push(consoleRef);
-      return makeResult({ item, batch, execution_id, status: "PASSED", attempts: [{ at: new Date().toISOString() }], evidence_refs: evidenceRefs, redaction_status: "COMPLETE" });
+      if (tracePath) await context.tracing.start({ screenshots: true, snapshots: true, sources: false });
+      await context.route("**/*", async (route) => { try { await network.assertAllowedAsync(route.request().url()); await route.continue(); } catch { await route.abort("blockedbyclient"); } });
+      page = await context.newPage();
+      page.on("console", (message) => { if (message.type() === "error") consoleErrors.push(message.text()); });
+      page.on("pageerror", (error) => consoleErrors.push(error.message));
+      const runPhase = async (phase: "setup" | "test" | "cleanup", steps: TestStep[] | undefined, stopOnFailure: boolean): Promise<void> => {
+        for (const step of steps || []) {
+          const result = await this.runStep({ page: page!, context, step, phase, index: pathResults.length, baseUrl, scopes, network, storage, runId, caseId: item.case_id, consoleErrors, fixtureVariant });
+          pathResults.push(result.step);
+          if (result.failure && stopOnFailure) throw result.failure;
+        }
+      };
+      try { await runPhase("setup", item.setup, true); await runPhase("test", item.steps, true); }
+      catch (error) { testFailure = isFailure(error) ? error : asFailure(error); }
+    } finally {
+      try {
+        if (page && item.cleanup) {
+          try { await this.runCleanup({ page, context, steps: item.cleanup, pathResults, baseUrl, scopes, network, storage, runId, caseId: item.case_id, consoleErrors, fixtureVariant }); cleanupStatus = "PASSED"; }
+          catch (error) { cleanupStatus = "FAILED"; if (!testFailure) testFailure = isFailure(error) ? error : asFailure(error, "cleanup"); }
+        }
+        if (page && (item.kind === "ui" || item.kind === "hybrid")) {
+          try { evidenceRefs.push(storage.writeCaseArtifact(runId, item.case_id, "screenshot.png", "screenshot", await page.screenshot({ type: "png", fullPage: true, mask: [page.locator("input[type=password]"), page.locator("[data-secret], [data-sensitive]")], maskColor: "#000000" }))); }
+          catch { redactionStatus = "INCOMPLETE"; }
+          evidenceRefs.push(storage.writeCaseArtifact(runId, item.case_id, "console.json", "console.json", JSON.stringify(redactSecrets({ errors: consoleErrors }), null, 2)));
+        }
+      } finally {
+        if (tracePath) {
+          try { await context.tracing.stop({ path: tracePath }); if (fs.existsSync(tracePath)) evidenceRefs.push(storage.writeCaseArtifact(runId, item.case_id, "trace.zip", "playwright-trace", fs.readFileSync(tracePath))); }
+          catch { redactionStatus = "INCOMPLETE"; }
+          try { fs.rmSync(tracePath, { force: true }); } catch { /* best effort */ }
+        }
+        await context.close().catch((error) => { if (!testFailure) testFailure = asFailure(error, "context close"); });
+      }
+    }
+    evidenceRefs.push(...pathResults.flatMap((step) => step.evidence_refs));
+    const status = testFailure || cleanupStatus === "FAILED" ? "FAILED" : "PASSED";
+    const failure = testFailure || (cleanupStatus === "FAILED" ? { error: "cleanup failed", classification: "TEST_DEFECT" as const } : undefined);
+    return { status, path: pathResults, evidence_refs: evidenceRefs, error: failure?.error, classification: failure?.classification, redaction_status: redactionStatus, cleanup_status: cleanupStatus };
+  }
+
+  private async runCleanup({ page, context, steps, pathResults, baseUrl, scopes, network, storage, runId, caseId, consoleErrors, fixtureVariant }: { page: Page; context: BrowserContext; steps: TestStep[]; pathResults: ExecutionPathStep[]; baseUrl: string; scopes: Record<string, unknown>; network: BrowserNetworkGuard; storage: RunStorage; runId: string; caseId: string; consoleErrors: string[]; fixtureVariant?: FixtureVariant }): Promise<void> {
+    let firstFailure: Failure | undefined;
+    for (const step of steps) {
+      const result = await this.runStep({ page, context, step, phase: "cleanup", index: pathResults.length, baseUrl, scopes, network, storage, runId, caseId, consoleErrors, fixtureVariant });
+      pathResults.push(result.step);
+      if (result.failure && !firstFailure) firstFailure = result.failure;
+    }
+    if (firstFailure) throw firstFailure;
+  }
+
+  private async runStep({ page, context, step, phase, index, baseUrl, scopes, network, storage, runId, caseId, consoleErrors, fixtureVariant }: StepContext): Promise<{ step: ExecutionPathStep; failure?: Failure }> {
+    const started = Date.now(); const startedAt = new Date(started).toISOString();
+    const resolved = resolveInterpolation(step, scopes) as TestStep;
+    const record: ExecutionPathStep = { step_index: index, phase, action: step.action, ...("locator" in step && step.locator ? { locator_ref: JSON.stringify(step.locator) } : {}), status: "FAILED", started_at: startedAt, ended_at: startedAt, finished_at: startedAt, duration_ms: 0, evidence_refs: [] };
+    try {
+      const output = await this.executeStep({ page, context, step: resolved, baseUrl, scopes, network, storage, runId, caseId, consoleErrors, fixtureVariant });
+      record.status = "PASSED"; record.output_summary = output.summary; if (output.endpoint_ref) record.endpoint_ref = output.endpoint_ref; if (output.evidence_refs) record.evidence_refs.push(...output.evidence_refs);
+      record.ended_at = new Date().toISOString(); record.finished_at = record.ended_at; record.duration_ms = Date.now() - started; return { step: record };
     } catch (error) {
-      const screenshot = await this.captureScreenshot(page).catch(() => Buffer.from([]));
-      const redactionStatus = screenshot.length ? "COMPLETE" as const : "INCOMPLETE" as const;
-      if (screenshot.length) evidenceRefs.push(storage.writeArtifact(runId, execution_id + ".png", "screenshot", screenshot));
-      evidenceRefs.push(storage.writeArtifact(runId, execution_id + ".console.json", "console.json", JSON.stringify(redactSecrets({ errors: consoleErrors.map(redact), failed_requests: failedRequests.map(redact) }), null, 2)));
-      return makeResult({ item, batch, execution_id, status: "FAILED", attempts: [{ at: new Date().toISOString() }], evidence_refs: evidenceRefs, error: redact(error instanceof Error ? error.message : String(error)), classification: redactionStatus === "INCOMPLETE" ? "INFRA_DEFECT" : "PRODUCT_DEFECT", redaction_status: redactionStatus });
-    } finally { await context.close(); }
+      record.error = redact(errorMessage(error)); record.ended_at = new Date().toISOString(); record.finished_at = record.ended_at; record.duration_ms = Date.now() - started;
+      return { step: record, failure: classifyFailure(error, step.action) };
+    }
   }
 
-  private async captureScreenshot(page: Awaited<ReturnType<Awaited<ReturnType<typeof chromium.launch>>["newPage"]>>): Promise<Buffer> {
-    return page.screenshot({ type: "png", fullPage: true, mask: [page.locator("input[type=password]"), page.locator("[data-secret], [data-sensitive]")], maskColor: "#000000" });
+  private async executeStep({ page, context, step, baseUrl, scopes, network, storage, runId, caseId, consoleErrors, fixtureVariant }: ExecuteContext): Promise<{ summary?: unknown; endpoint_ref?: string; evidence_refs?: ArtifactRef[] }> {
+    const withVariant = (value: string): string => value.replaceAll("{variant}", String(fixtureVariant || "pass"));
+    const urlFor = (value: string): string => { const url = new URL(withVariant(value), baseUrl); network.assertAllowed(url.toString()); return url.toString(); };
+    if (step.action === "goto") { await page.goto(urlFor(step.path), { waitUntil: "networkidle" }); return {}; }
+    if (step.action === "reload") { await page.reload({ waitUntil: "networkidle" }); return {}; }
+    if (step.action === "fill") { await locate(page, step.locator).fill(step.value); return { summary: { value: "[REDACTED]" } }; }
+    if (step.action === "click") { await locate(page, step.locator).click(); return {}; }
+    if (step.action === "select") { await locate(page, step.locator).selectOption(step.value); return {}; }
+    if (step.action === "check") { await locate(page, step.locator).check(); return {}; }
+    if (step.action === "uncheck") { await locate(page, step.locator).uncheck(); return {}; }
+    if (step.action === "press") { await locate(page, step.locator).press(step.key); return {}; }
+    if (step.action === "wait_for") { if (step.locator) await locate(page, step.locator).waitFor({ state: step.state || "visible", timeout: step.timeout_ms }); else await page.waitForTimeout(step.timeout_ms || 50); return {}; }
+    if (step.action === "expect_visible" || step.action === "expect_hidden") { await locate(page, step.locator).waitFor({ state: step.action === "expect_visible" ? "visible" : "hidden", timeout: 1_500 }); return {}; }
+    if (step.action === "expect_text") { const text = await locate(page, step.locator).innerText(); if (step.equals !== undefined && text !== step.equals || step.contains !== undefined && !text.includes(step.contains)) throw new Error(`expect_text failed: ${JSON.stringify(text)}`); return { summary: { text: redactText(text) } }; }
+    if (step.action === "expect_value") { const value = await locate(page, step.locator).inputValue(); if (value !== step.equals) throw new Error("expect_value failed"); return {}; }
+    if (step.action === "expect_count") { const count = await locate(page, step.locator).count(); if (count !== step.equals) throw new Error(`expect_count failed: ${count}`); return { summary: { count } }; }
+    if (step.action === "expect_url") { const actual = new URL(page.url()); const expected = new URL(withVariant(step.path), baseUrl); if (actual.pathname + actual.search + actual.hash !== expected.pathname + expected.search + expected.hash) throw new Error("expect_url failed"); return {}; }
+    if (step.action === "expect_checked") { if (await locate(page, step.locator).isChecked() !== step.checked) throw new Error("expect_checked failed"); return {}; }
+    if (step.action === "expect_no_console_errors") { if (consoleErrors.length) throw new Error("console error: " + consoleErrors.join(" | ")); return {}; }
+    if (step.action === "set_variable") { (scopes.variables as Record<string, unknown>)[step.name] = redactSecrets(step.value); return { summary: { name: step.name } }; }
+    if (step.action === "capture_text") { (scopes.variables as Record<string, unknown>)[step.save_as] = await locate(page, step.locator).innerText(); return { summary: { name: step.save_as } }; }
+    if (step.action === "capture_attribute") { (scopes.variables as Record<string, unknown>)[step.save_as] = await locate(page, step.locator).getAttribute(step.attribute); return { summary: { name: step.save_as } }; }
+    if (step.action === "api_request") { const response = await apiRequest(context, urlFor(step.path), step, network); const value = await responseValue(response); if (step.save_as) (scopes.responses as Record<string, unknown>)[step.save_as] = value; const ref = storage.writeCaseArtifact(runId, caseId, `api-${Date.now()}-${crypto.randomUUID()}.json`, "api-response", JSON.stringify(redactSecrets(value), null, 2)); return { endpoint_ref: step.path, evidence_refs: [ref], summary: { status: value.status, response_ref: ref.handle } }; }
+    if (step.action === "expect_status") { const source = getSource(scopes, step.source); if (source.status !== step.equals) throw new Error(`expect_status failed: ${source.status}`); return {}; }
+    if (step.action === "expect_header") { const source = getSource(scopes, step.source); const value = source.headers[String(step.name).toLowerCase()] || source.headers[step.name]; if (step.equals !== undefined && value !== step.equals || step.contains !== undefined && !String(value || "").includes(step.contains)) throw new Error("expect_header failed"); return {}; }
+    if (step.action === "expect_json") { const source = getSource(scopes, step.source); const actual = jsonPath(source.body, step.path); if (step.exists !== undefined ? (step.exists !== (actual !== undefined)) : stableValue(actual) !== stableValue(step.equals)) throw new Error("expect_json failed"); return {}; }
+    if (step.action === "expect_json_schema") { const source = getSource(scopes, step.source); if (!matchesSchema(source.body, step.schema)) throw new Error("expect_json_schema failed"); return {}; }
+    if (step.action === "capture_json") { const source = getSource(scopes, step.source); (scopes.variables as Record<string, unknown>)[step.save_as] = step.path ? jsonPath(source.body, step.path) : source.body; return { summary: { name: step.save_as } }; }
+    throw Object.assign(new Error("unsupported TestPlan step: " + step.action), { code: "PLAN_STEP_UNSUPPORTED" });
   }
 
-  private async executeStep(page: Awaited<ReturnType<Awaited<ReturnType<typeof chromium.launch>>["newPage"]>>, step: FixtureStep, baseUrl: string, variant: FixtureVariant, consoleErrors: string[]): Promise<void> {
-    if (step.action === "goto") { await page.goto(baseUrl + step.path.replace("{variant}", variant), { waitUntil: "networkidle" }); return; }
-    if (step.action === "fill") { await page.locator(step.selector).fill(step.value); return; }
-    if (step.action === "click") { await page.locator(step.selector).click(); return; }
-    if (step.action === "expect_visible") { await page.locator(step.selector).waitFor({ state: "visible", timeout: 1500 }); return; }
-    if (step.action === "expect_no_console_errors" && consoleErrors.length > 0) throw new Error("console error: " + consoleErrors.join(" | "));
+}
+
+/** Compatibility adapter for the frozen M2 FixturePlan path. */
+export class PlaywrightFixtureRunner extends PlaywrightPlanRunner {
+  async run(options: PlanRunnerOptions | FixtureRunnerOptions): Promise<ExecutionOutcome> {
+    if ("variant" in options) {
+      const { runId, baseUrl, plan, variant, storage, allowedOrigins = [new URL(baseUrl).origin], matrix, tier = "fast", trace = false } = options;
+      return super.run({ runId, baseUrl, plan: fromFixturePlan(plan), planAuthority: "migrated_fixture", fixtureVariant: variant, allowedOrigins, matrix, tier, trace, storage, blockedCaseIds: variant === "incomplete" ? { case_console_health: "fixture capability intentionally blocked" } : undefined });
+    }
+    return super.run(options);
   }
 }
 
 interface MatrixBatch { batch_id: string; browser: BrowserName; viewport: { width: number; height: number }; locale: string; auth_scope_id: string; }
+interface StepContext { page: Page; context: BrowserContext; step: TestStep; phase: "setup" | "test" | "cleanup"; index: number; baseUrl: string; scopes: Record<string, unknown>; network: BrowserNetworkGuard; storage: RunStorage; runId: string; caseId: string; consoleErrors: string[]; fixtureVariant?: FixtureVariant; }
+interface ExecuteContext { page: Page; context: BrowserContext; step: TestStep; baseUrl: string; scopes: Record<string, unknown>; network: BrowserNetworkGuard; storage: RunStorage; runId: string; caseId: string; consoleErrors: string[]; fixtureVariant?: FixtureVariant; }
+interface Failure { error: string; classification: "PRODUCT_DEFECT" | "TEST_DEFECT" | "INFRA_DEFECT"; }
+interface AttemptOutcome { status: "PASSED" | "FAILED"; path: ExecutionPathStep[]; evidence_refs: ArtifactRef[]; error?: string; classification?: Failure["classification"]; redaction_status: "COMPLETE" | "INCOMPLETE"; cleanup_status: "PASSED" | "FAILED" | "SKIPPED"; }
+
 const DEFAULT_MATRIX: Required<ExecutionMatrix> = { browsers: ["chromium"], viewports: [{ width: 1280, height: 720 }], locales: ["en-US"], auth_scope_ids: ["as_demo"] };
-function buildBatches(matrix: ExecutionMatrix | undefined): MatrixBatch[] {
-  const value = { ...DEFAULT_MATRIX, ...(matrix || {}) };
-  const batches: MatrixBatch[] = [];
-  for (const browser of value.browsers) for (const viewport of value.viewports) for (const locale of value.locales) for (const auth_scope_id of value.auth_scope_ids) {
-    const key = JSON.stringify({ browser, viewport, locale, auth_scope_id });
-    batches.push({ batch_id: "BAT-" + crypto.createHash("sha256").update(key).digest("hex").slice(0, 16), browser, viewport, locale, auth_scope_id });
-  }
-  return batches;
-}
+function buildBatches(matrix: ExecutionMatrix | undefined): MatrixBatch[] { const value = { ...DEFAULT_MATRIX, ...(matrix || {}) }; const batches: MatrixBatch[] = []; for (const browser of value.browsers) for (const viewport of value.viewports) for (const locale of value.locales) for (const auth_scope_id of value.auth_scope_ids) { const key = JSON.stringify({ browser, viewport, locale, auth_scope_id }); batches.push({ batch_id: "BAT-" + crypto.createHash("sha256").update(key).digest("hex").slice(0, 16), browser, viewport, locale, auth_scope_id }); } return batches; }
 function browserType(name: BrowserName): BrowserType { return name === "firefox" ? firefox : name === "webkit" ? webkit : chromium; }
 function executionId(caseId: string, batch: string): string { return "EXE-" + crypto.createHash("sha256").update(caseId + "|" + batch).digest("hex").slice(0, 16); }
-function makeResult({ item, batch, execution_id = executionId(item.case_id, batch.batch_id), status, attempts = [], evidence_refs = [], error, classification, redaction_status }: { item: FixtureCase; batch: MatrixBatch; execution_id?: string; status: ExecutionResult["status"]; attempts?: Record<string, unknown>[]; evidence_refs?: ArtifactRef[]; error?: string; classification?: ExecutionResult["classification"]; redaction_status?: ExecutionResult["redaction_status"] }): ExecutionResult { return { execution_id, case_id: item.case_id, batch_id: batch.batch_id, browser: batch.browser, viewport: batch.viewport, locale: batch.locale, auth_scope_id: batch.auth_scope_id, status, attempts, evidence_refs, at: new Date().toISOString(), ...(error ? { error } : {}), ...(classification ? { classification } : {}), ...(redaction_status ? { redaction_status } : {}) }; }
-function persistResult(storage: RunStorage, runId: string, result: ExecutionResult, evidence: Record<string, unknown>[]): void { storage.writeJson(runId, pathForCheckpoint(result.execution_id), { execution_id: result.execution_id, case_id: result.case_id, status: result.status, attempt: result.attempts.length, at: result.at }); evidence.push({ execution_id: result.execution_id, items: result.evidence_refs, redacted: result.redaction_status !== "INCOMPLETE", redaction_status: result.redaction_status || "COMPLETE" }); }
-function pathForCheckpoint(executionIdValue: string): string { return "checkpoints/" + executionIdValue + ".json"; }
+function makeResult({ item, batch, status, attempts = [], path = [], evidence_refs = [], error, classification, redaction_status }: { item: TestCase; batch: MatrixBatch; status: ExecutionResult["status"]; attempts?: Record<string, unknown>[]; path?: ExecutionPathStep[]; evidence_refs?: ArtifactRef[]; error?: string; classification?: ExecutionResult["classification"]; redaction_status?: ExecutionResult["redaction_status"] }): ExecutionResult { return { execution_id: executionId(item.case_id, batch.batch_id), case_id: item.case_id, batch_id: batch.batch_id, browser: batch.browser, viewport: batch.viewport, locale: batch.locale, auth_scope_id: batch.auth_scope_id, status, attempts, path, evidence_refs, at: new Date().toISOString(), ...(error ? { error } : {}), ...(classification ? { classification } : {}), ...(redaction_status ? { redaction_status } : {}) }; }
+function persistResult(storage: RunStorage, runId: string, result: ExecutionResult, evidence: Record<string, unknown>[]): void { storage.writeJson(runId, "checkpoints/" + result.execution_id + ".json", { execution_id: result.execution_id, case_id: result.case_id, status: result.status, attempt: result.attempts.length, path: result.path, at: result.at }); evidence.push({ execution_id: result.execution_id, items: result.evidence_refs, redacted: result.redaction_status !== "INCOMPLETE", redaction_status: result.redaction_status || "COMPLETE" }); }
+function fromNormalizedPlan(plan: TestPlan, authority: PlanValidationContext["authority"]): TestPlan { const copy = JSON.parse(JSON.stringify(plan)) as TestPlan; assertValidPlan(copy, { authority }); return normalizePlan(copy, { authority }); }
+function locate(page: Page, locator: LocatorRef) { if (locator.by === "role") return page.getByRole(locator.role as any, locator.name === undefined ? {} : { name: locator.name, exact: locator.exact }); if (locator.by === "label") return page.getByLabel(locator.text); if (locator.by === "test_id") return page.getByTestId(locator.value); if (locator.by === "text") return page.getByText(locator.text, { exact: locator.exact }); if (locator.by === "id") return page.locator("#" + locator.value); return page.locator(locator.value); }
+async function apiRequest(context: BrowserContext, url: string, step: Extract<TestStep, { action: "api_request" }>, network: BrowserNetworkGuard): Promise<APIResponse> { await network.assertAllowedAsync(url); return context.request.fetch(url, { method: step.method, headers: step.headers, data: step.body }); }
+async function responseValue(response: APIResponse): Promise<Record<string, unknown>> { const headers = response.headers(); const text = await response.text(); let body: unknown = text; try { body = text ? JSON.parse(text) : undefined; } catch { /* text body */ } return { status: response.status(), ok: response.ok(), url: response.url(), headers, body }; }
+function getSource(scopes: Record<string, unknown>, source: unknown): Record<string, any> { const value = source && typeof source === "object" ? source : typeof source === "string" && source.startsWith("${") ? resolveInterpolation(source, scopes) : typeof source === "string" && source.startsWith("$") ? lookup(scopes.responses, source.slice(1)) : typeof source === "string" && source.startsWith("responses.") ? lookup(scopes.responses, source.slice("responses.".length)) : lookup(scopes.responses, String(source)); if (!value || typeof value !== "object") throw Object.assign(new Error("response source is undefined: " + String(source)), { code: "PLAN_VARIABLE_UNDEFINED" }); return value as Record<string, any>; }
+function lookup(scope: unknown, expression: string): unknown { let value = scope; for (const part of expression.replace(/^\$\{?/, "").replace(/\}?$/, "").split(".").filter(Boolean)) { if (!value || typeof value !== "object" || !(part in (value as Record<string, unknown>))) throw Object.assign(new Error("undefined variable: " + expression), { code: "PLAN_VARIABLE_UNDEFINED" }); value = (value as Record<string, unknown>)[part]; } return value; }
+function jsonPath(value: unknown, expression: string): unknown { return expression.split(".").filter(Boolean).reduce<unknown>((current, part) => { const match = part.match(/^(.+)\[(\d+)\]$/); if (match) return Array.isArray(current) ? current[Number(match[2])] : undefined; return current && typeof current === "object" ? (current as Record<string, unknown>)[part] : undefined; }, value); }
+function stableValue(value: unknown): string { return JSON.stringify(value, Object.keys((value && typeof value === "object" && !Array.isArray(value)) ? value as object : {}).sort()); }
+function matchesSchema(value: unknown, schema: unknown): boolean { if (!schema || typeof schema !== "object") return false; const rule = schema as Record<string, unknown>; if (rule.type === "object" && (!value || typeof value !== "object" || Array.isArray(value))) return false; if (rule.type === "array" && !Array.isArray(value)) return false; if (rule.type === "string" && typeof value !== "string") return false; if (rule.type === "number" && typeof value !== "number") return false; if (rule.type === "boolean" && typeof value !== "boolean") return false; if (Array.isArray(rule.required) && (!value || typeof value !== "object" || rule.required.some((key) => !(key as string in (value as Record<string, unknown>))))) return false; if (rule.properties && value && typeof value === "object") return Object.entries(rule.properties as Record<string, unknown>).every(([key, child]) => !(key in (value as Record<string, unknown>)) || matchesSchema((value as Record<string, unknown>)[key], child)); return true; }
+function classifyFailure(error: unknown, action?: string): Failure { const message = redact(errorMessage(error)); const code = (error as { code?: string })?.code; if (code === "PLAN_VARIABLE_UNDEFINED" || code === "PLAN_STEP_UNSUPPORTED" || /invalid TestPlan/i.test(message)) return { error: message, classification: "TEST_DEFECT" }; if (/net::|network|blockedbyclient|ERR_|target closed|browser.*closed/i.test(message)) return { error: message, classification: "INFRA_DEFECT" }; if (/^expect_|^expect |status failed|header failed|json failed|console error/i.test(action || "") || /expect_|expect |status failed|header failed|json failed|console error/i.test(message)) return { error: message, classification: "PRODUCT_DEFECT" }; if (/strict mode|locator/i.test(message) || action === "cleanup") return { error: message, classification: "TEST_DEFECT" }; return { error: message, classification: "PRODUCT_DEFECT" }; }
+function isFailure(error: unknown): error is Failure { return Boolean(error && typeof error === "object" && typeof (error as Failure).error === "string" && typeof (error as Failure).classification === "string"); }
+function asFailure(error: unknown, phase?: string): Failure { return classifyFailure(error, phase === "cleanup" ? "cleanup" : undefined); }
+function errorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 function redact(value: string): string { return value.replace(/([?&](?:token|secret|password|authorization|cookie)=)[^&\s]+/gi, "$1[REDACTED]").replace(/(Bearer\s+)[A-Za-z0-9._-]+/gi, "$1[REDACTED]").replace(/(password|secret|token)\s*[:=]\s*[^,\s]+/gi, "$1=[REDACTED]"); }
+function redactText(value: string): string { return redact(value).slice(0, 2_000); }
