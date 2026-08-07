@@ -45,7 +45,7 @@ try {
   check("m9.4-api-evidence-is-case-scoped", Boolean(api?.evidence_refs.some((ref) => ref.kind === "api-response")) && fs.existsSync(path.join(first.dataRoot, "runs", "run_legacy_12_a", "cases", "legacy_A_not_found", "artifacts")));
   check("m9.4-no-dirty-data-after-run", first.target.getItems().length === 0 && first.target.getStats().creates === first.target.getStats().deletes);
 
-  const shuffledIds = [...caseIds].sort(() => 0.5 - Math.random());
+  const shuffledIds = seededShuffle(caseIds, 0xA9_04);
   const second = await runOrder(shuffledIds, "b");
   try {
     check("m9.4-random-order-is-semantic-equivalent", JSON.stringify(firstSummary) === JSON.stringify(caseSummary(second.outcome)) && second.outcome.results.every((item) => item.status === "PASSED"));
@@ -55,3 +55,17 @@ try {
 
 console.log(`\nM9.4 legacy-12 verify: ${passed} passed, ${failed} failed`);
 if (failed) process.exitCode = 1;
+
+function seededShuffle(items, seed) {
+  const shuffled = [...items];
+  let state = seed >>> 0;
+  const next = () => {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    return state / 0x1_0000_0000;
+  };
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(next() * (index + 1));
+    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+  }
+  return shuffled;
+}
