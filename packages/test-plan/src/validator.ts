@@ -22,8 +22,12 @@ const ACTION_KEYS: Record<string, string[]> = {
   set_variable: ["action", "name", "value"], capture_text: ["action", "locator", "save_as"],
   capture_attribute: ["action", "locator", "attribute", "save_as"], capture_json: ["action", "source", "path", "save_as"]
 };
+export interface PlanValidationContext {
+  authority: "generated" | "trusted_manual" | "migrated_fixture" | "untrusted";
+}
+const DEFAULT_VALIDATION_CONTEXT: PlanValidationContext = { authority: "untrusted" };
 
-export function validatePlan(plan: unknown): ValidationResult {
+export function validatePlan(plan: unknown, context: PlanValidationContext = DEFAULT_VALIDATION_CONTEXT): ValidationResult {
   const errors: string[] = [];
   if (!isObject(plan)) return { ok: false, errors: ["plan must be an object"] };
   if (!onlyKeys(plan, ["plan_schema", "plan_id", "generated_at", "origin", "coverage_eligible", "target", "fixtures", "cases"])) errors.push("plan has unknown fields");
@@ -39,17 +43,17 @@ export function validatePlan(plan: unknown): ValidationResult {
   const seen = new Set<string>();
   for (const item of Array.isArray(plan.cases) ? plan.cases : []) {
     if (!isObject(item)) { errors.push("case must be an object"); continue; }
-    validateCase(item as unknown as TestCase, plan, errors, seen);
+    validateCase(item as unknown as TestCase, plan, errors, seen, context);
   }
   return { ok: errors.length === 0, errors: [...new Set(errors)] };
 }
 
-export function assertValidPlan(plan: unknown): asserts plan is TestPlan {
-  const result = validatePlan(plan);
+export function assertValidPlan(plan: unknown, context: PlanValidationContext = DEFAULT_VALIDATION_CONTEXT): asserts plan is TestPlan {
+  const result = validatePlan(plan, context);
   if (!result.ok) throw Object.assign(new Error("invalid TestPlan: " + result.errors.join("; ")), { code: "PLAN_INVALID", errors: result.errors });
 }
 
-function validateCase(item: TestCase, plan: Record<string, unknown>, errors: string[], seen: Set<string>): void {
+function validateCase(item: TestCase, plan: Record<string, unknown>, errors: string[], seen: Set<string>, context: PlanValidationContext): void {
   const raw = item as unknown as Record<string, unknown>;
   const prefix = "case " + String(item.case_id || "<unknown>");
   if (!onlyKeys(raw, ["case_id", "origin", "title", "feature_id", "requirement_refs", "scenario", "priority", "effective_tier", "kind", "risk", "confidence", "execution_policy", "setup", "steps", "cleanup"])) errors.push(prefix + ": unknown case field");
@@ -70,15 +74,14 @@ function validateCase(item: TestCase, plan: Record<string, unknown>, errors: str
     if (item.execution_policy.timeout_ms !== undefined && (!Number.isInteger(item.execution_policy.timeout_ms) || item.execution_policy.timeout_ms < 1)) errors.push(prefix + ": timeout_ms must be a positive integer");
   }
   const bindings = { variables: new Set<string>(), responses: new Set<string>(), fixtures: isObject(plan.fixtures) ? new Set(Object.keys(plan.fixtures)) : new Set<string>() };
-  const scopedPlan = { ...plan, __case_origin: item.origin };
   for (const phase of ["setup", "steps", "cleanup"] as const) {
     if (phase === "steps" && (!Array.isArray(item.steps) || item.steps.length === 0)) errors.push(prefix + ": steps must be a non-empty array");
     if (item[phase] !== undefined && !Array.isArray(item[phase])) errors.push(prefix + ": " + phase + " must be an array");
-    if (Array.isArray(item[phase])) validateSteps(item[phase], phase, scopedPlan, errors, prefix, bindings);
+    if (Array.isArray(item[phase])) validateSteps(item[phase], phase, errors, prefix, bindings, context);
   }
 }
 
-function validateSteps(steps: TestStep[], phase: string, plan: Record<string, unknown>, errors: string[], prefix: string, bindings: { variables: Set<string>; responses: Set<string>; fixtures: Set<string> }): void {
+function validateSteps(steps: TestStep[], phase: string, errors: string[], prefix: string, bindings: { variables: Set<string>; responses: Set<string>; fixtures: Set<string> }, context: PlanValidationContext): void {
   for (const step of steps) {
     if (!isObject(step) || typeof step.action !== "string") { errors.push(prefix + ": invalid " + phase + " step"); continue; }
     const action = step.action;
@@ -87,7 +90,7 @@ function validateSteps(steps: TestStep[], phase: string, plan: Record<string, un
     if (!isSupportedStepAction(action)) { errors.push(prefix + ": unsupported action " + action); continue; }
     if (!onlyKeys(rawStep, ACTION_KEYS[action] || ["action"])) errors.push(prefix + ": unknown field in " + action + " step");
     for (const key of Object.keys(rawStep)) if (FORBIDDEN_PROPERTY_PATTERN.test(key)) errors.push(prefix + ": forbidden step property " + key);
-    validateActionShape(action, rawStep, plan, errors, prefix);
+    validateActionShape(action, rawStep, errors, prefix, context);
     for (const reference of extractVariableReferences(step)) {
       if (!reference.namespace || !reference.name || reference.namespace === "env") errors.push(prefix + ": invalid or forbidden variable reference");
       else if (reference.namespace === "fixtures" && !bindings.fixtures.has(reference.name)) errors.push(prefix + ": undefined fixture " + reference.name);
@@ -101,15 +104,15 @@ function validateSteps(steps: TestStep[], phase: string, plan: Record<string, un
   }
 }
 
-function validateActionShape(action: string, step: Record<string, unknown>, plan: Record<string, unknown>, errors: string[], prefix: string): void {
+function validateActionShape(action: string, step: Record<string, unknown>, errors: string[], prefix: string, context: PlanValidationContext): void {
   const required = (key: string, type: "string" | "boolean" | "number" | "object" = "string", nonEmpty = true) => {
     if (step[key] === undefined || typeof step[key] !== type || (nonEmpty && type === "string" && !step[key])) errors.push(prefix + ": " + action + "." + key + " is required");
   };
   if (["goto", "expect_url"].includes(action)) { required("path"); validateRelativePath(String(step.path || ""), prefix, errors); }
-  if (["click", "fill", "press", "select", "check", "uncheck", "expect_visible", "expect_hidden", "expect_text", "expect_value", "expect_count", "expect_checked", "capture_text", "capture_attribute"].includes(action)) { if (step.locator === undefined) errors.push(prefix + ": " + action + ".locator is required"); else validateLocator(step.locator, plan, errors, prefix); }
+  if (["click", "fill", "press", "select", "check", "uncheck", "expect_visible", "expect_hidden", "expect_text", "expect_value", "expect_count", "expect_checked", "capture_text", "capture_attribute"].includes(action)) { if (step.locator === undefined) errors.push(prefix + ": " + action + ".locator is required"); else validateLocator(step.locator, errors, prefix, context); }
   if (action === "fill" || action === "select") required("value", "string", false);
   if (action === "press") required("key");
-  if (action === "wait_for") { if (step.locator !== undefined) validateLocator(step.locator, plan, errors, prefix); if (step.state !== undefined && !["visible", "hidden", "attached"].includes(String(step.state))) errors.push(prefix + ": invalid wait state"); if (step.timeout_ms !== undefined && (!Number.isInteger(step.timeout_ms) || Number(step.timeout_ms) < 1)) errors.push(prefix + ": invalid wait timeout"); }
+  if (action === "wait_for") { if (step.locator !== undefined) validateLocator(step.locator, errors, prefix, context); if (step.state !== undefined && !["visible", "hidden", "attached"].includes(String(step.state))) errors.push(prefix + ": invalid wait state"); if (step.timeout_ms !== undefined && (!Number.isInteger(step.timeout_ms) || Number(step.timeout_ms) < 1)) errors.push(prefix + ": invalid wait timeout"); }
   if (action === "api_request") { required("method"); required("path"); if (!["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"].includes(String(step.method))) errors.push(prefix + ": invalid HTTP method"); validateRelativePath(String(step.path || ""), prefix, errors); if (step.headers !== undefined && (!isObject(step.headers) || Object.values(step.headers).some((value) => typeof value !== "string"))) errors.push(prefix + ": headers must be string values"); if (step.save_as !== undefined && !validVariableName(step.save_as)) errors.push(prefix + ": invalid response variable"); }
   if (action === "expect_text") { if ((step.equals === undefined) === (step.contains === undefined) || (step.equals !== undefined && typeof step.equals !== "string") || (step.contains !== undefined && typeof step.contains !== "string")) errors.push(prefix + ": expect_text requires exactly one string oracle"); }
   if (action === "expect_value" && typeof step.equals !== "string") errors.push(prefix + ": expect_value.equals is required");
@@ -124,7 +127,7 @@ function validateActionShape(action: string, step: Record<string, unknown>, plan
   if (action === "capture_json") { required("source"); required("save_as"); if (!validVariableName(step.save_as)) errors.push(prefix + ": invalid capture variable"); if (step.path !== undefined && typeof step.path !== "string") errors.push(prefix + ": capture_json.path must be a string"); }
 }
 
-function validateLocator(locator: unknown, plan: Record<string, unknown>, errors: string[], prefix: string): void {
+function validateLocator(locator: unknown, errors: string[], prefix: string, context: PlanValidationContext): void {
   if (!isObject(locator) || typeof locator.by !== "string") { errors.push(prefix + ": locator is invalid"); return; }
   const allowed = locator.by === "role" ? ["by", "role", "name", "exact"] : locator.by === "label" || locator.by === "text" ? ["by", "text", "exact"] : ["by", "value"];
   if (locator.by === "css") allowed.push("authority");
@@ -138,8 +141,7 @@ function validateLocator(locator: unknown, plan: Record<string, unknown>, errors
     if (locator.authority !== "trusted_manual" || typeof locator.value !== "string" || !locator.value) errors.push(prefix + ": automatic CSS locator is not allowed");
   } else errors.push(prefix + ": CSS/XPath or unknown locator is not allowed");
   if (JSON.stringify(locator).match(HTTP_PATTERN)) errors.push(prefix + ": locator contains an unsafe URL");
-  const caseOrigin = isObject(plan.__case_origin) ? plan.__case_origin : plan.origin;
-  if (caseOrigin && isObject(caseOrigin) && caseOrigin.type === "generated" && locator.by === "css") errors.push(prefix + ": generated plan cannot use CSS locator");
+  if (locator.by === "css" && !["trusted_manual", "migrated_fixture"].includes(context.authority)) errors.push(prefix + ": CSS locator requires trusted validation authority");
 }
 
 function validateRelativePath(value: string, prefix: string, errors: string[]): void { if (!isSafeRelativePath(value)) errors.push(prefix + ": unsafe URL/path"); }

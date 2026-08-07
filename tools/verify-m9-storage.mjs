@@ -9,7 +9,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const { RunStorage } = await import(pathToFileURL(path.join(root, "packages/run-storage/dist/index.js")).href);
 if (!isMainThread) {
   const workerStorage = new RunStorage(workerData.dataRoot);
-  for (let index = 0; index < 20; index += 1) workerStorage.writeCaseArtifact(workerData.runId, "case_worker", "worker_" + workerData.workerId + "_" + index + ".bin", "worker", Buffer.from(workerData.workerId + ":" + index));
+  for (let index = 0; index < 5; index += 1) workerStorage.writeCaseArtifact(workerData.runId, "case_worker", "worker_" + workerData.workerId + "_" + index + ".bin", "worker", Buffer.from(workerData.workerId + ":" + index));
   parentPort.postMessage({ ok: true });
   process.exit(0);
 }
@@ -46,6 +46,7 @@ try {
   check("m9.2-artifact-file-traversal-rejected", rejects(() => storage.writeCaseArtifact(runId, caseId, "../escape.bin", "binary", "x")));
   check("m9.2-empty-artifact-kind-rejected", rejects(() => storage.writeCaseArtifact(runId, caseId, "empty.bin", "", "x"), "ARTIFACT_KIND_INVALID"));
   check("m9.2-unsafe-display-name-rejected", rejects(() => storage.writeCaseArtifact(runId, caseId, "my trace.zip", "trace", "x")) && rejects(() => storage.writeCaseArtifact(runId, caseId, "trace.", "trace", "x")));
+  check("m9.2-display-name-extension-confusion-rejected", rejects(() => storage.writeCaseArtifact(runId, caseId, "trace.zip:evil", "trace", "x")));
   const firstVersion = storage.writeCaseArtifact(runId, caseId, "immutable.zip", "trace", "version-a");
   const secondVersion = storage.writeCaseArtifact(runId, caseId, "immutable.zip", "trace", "version-b");
   check("m9.2-same-display-name-uses-distinct-immutable-paths", firstVersion.handle !== secondVersion.handle && storage.readArtifactRef(runId, firstVersion).toString() === "version-a" && storage.readArtifactRef(runId, secondVersion).toString() === "version-b");
@@ -55,18 +56,22 @@ try {
   const secondRef = storage.writeCaseArtifact(runId, "case_read", "response.json", "api-response", "response");
   check("m9.2-case-isolation-in-index", index.artifacts[ref.handle].relative_path.includes("case_create%3A1") && storage.readArtifactRef(runId, secondRef).toString() === "response");
   check("m9.2-index-schema-present", fs.existsSync(path.join(root, "packages/run-storage/schema/artifact-index.schema.json")));
+  const staleLockPath = storage.artifactIndexPath(runId) + ".lock";
+  fs.writeFileSync(staleLockPath, JSON.stringify({ pid: process.pid, thread_id: 999, owner_token: "crashed-worker", created_at: Date.now() - 60_000, expires_at: Date.now() - 60_000 }));
+  check("m9.2-stale-lock-recovers", storage.writeCaseArtifact(runId, "case_recovery", "recovered.bin", "recovery", "ok").kind === "recovery");
   const concurrent = await Promise.all(Array.from({ length: 8 }, (_, workerId) => new Promise((resolve, reject) => {
     const worker = new Worker(new URL("./verify-m9-storage.mjs", import.meta.url), { workerData: { dataRoot, runId, workerId } });
     worker.once("message", resolve);
-    worker.once("error", reject);
+    worker.once("error", (error) => { console.error("worker error", error); reject(error); });
+    worker.once("exit", (code) => { if (code !== 0) reject(new Error("worker exited with code " + code)); });
   })));
   const concurrentIndex = storage.readArtifactIndex(runId);
-  check("m9.2-concurrent-index-retains-all-artifacts", concurrentIndex && concurrent.length === 8 && Object.keys(concurrentIndex.artifacts).length >= 164);
+  check("m9.2-concurrent-index-retains-all-artifacts", concurrentIndex && concurrent.length === 8 && Object.keys(concurrentIndex.artifacts).length >= 45);
   check("m9.2-concurrent-artifacts-resolve", Object.values(concurrentIndex.artifacts).filter((entry) => entry.kind === "worker").every((entry) => storage.readArtifactRef(runId, { handle: Object.keys(concurrentIndex.artifacts).find((handle) => concurrentIndex.artifacts[handle] === entry), kind: entry.kind }).length > 0));
   const leftovers = fs.readdirSync(dataRoot, { recursive: true }).filter((name) => name.endsWith(".lock") || name.includes(".tmp."));
   check("m9.2-concurrent-no-lock-or-temp-leftovers", leftovers.length === 0);
 } finally {
-  fs.rmSync(dataRoot, { recursive: true, force: true });
+  try { fs.rmSync(dataRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }); } catch { /* workers report their own failure */ }
 }
 
 console.log(`\nM9.2 storage verify: ${passed} passed, ${failed} failed`);

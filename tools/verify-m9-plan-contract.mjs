@@ -78,7 +78,8 @@ check("m9.1-undefined-variable-rejected", !plan.validatePlan({ ...base, cases: [
 check("m9.1-environment-variable-rejected", !plan.validatePlan({ ...base, cases: [{ ...uiCase, steps: [{ action: "fill", locator: { by: "id", value: "name" }, value: "${env.SECRET}" }] }] }).ok);
 check("m9.1-unsafe-url-rejected", !plan.validatePlan({ ...base, cases: [{ ...uiCase, steps: [{ action: "goto", path: "https://evil.example" }] }] }).ok);
 check("m9.1-automatic-css-rejected", !plan.validatePlan({ ...base, origin: { type: "generated" }, cases: [{ ...uiCase, steps: [{ action: "click", locator: { by: "css", value: "#save", authority: "trusted_manual" } }] }] }).ok);
-check("m9.1-trusted-manual-css-accepted", plan.validatePlan({ ...base, cases: [{ ...uiCase, steps: [{ action: "click", locator: { by: "css", value: "#save", authority: "trusted_manual" } }] }] }).ok);
+check("m9.1-untrusted-manual-css-rejected", !plan.validatePlan({ ...base, cases: [{ ...uiCase, steps: [{ action: "click", locator: { by: "css", value: "#save", authority: "trusted_manual" } }] }] }).ok);
+check("m9.1-trusted-manual-css-accepted", plan.validatePlan({ ...base, cases: [{ ...uiCase, steps: [{ action: "click", locator: { by: "css", value: "#save", authority: "trusted_manual" } }] }] }, { authority: "trusted_manual" }).ok);
 const parityCases = [
   ["extra-top-level-field", { ...validUi, script: "dangerous" }],
   ["unsafe-parent-path", { ...base, cases: [{ ...uiCase, steps: [{ action: "goto", path: "/api/../../secret" }] }] }],
@@ -88,7 +89,8 @@ const parityCases = [
   ["invalid-locator-optional-types", { ...base, cases: [{ ...uiCase, steps: [{ action: "click", locator: { by: "role", role: "button", name: 123, exact: "yes" } }] }] }],
   ["invalid-timestamp", { ...validUi, generated_at: "not-a-date" }],
   ["generated-css-plan", { ...base, origin: { type: "generated" }, cases: [{ ...uiCase, steps: [{ action: "click", locator: { by: "css", value: "#save", authority: "trusted_manual" } }] }] }],
-  ["generated-case-origin-override", { ...base, origin: { type: "generated" }, cases: [{ ...uiCase, origin: { type: "manual" }, steps: [{ action: "click", locator: { by: "css", value: "#save", authority: "trusted_manual" } }] }] }]
+  ["generated-case-origin-override", { ...base, origin: { type: "generated" }, cases: [{ ...uiCase, origin: { type: "manual" }, steps: [{ action: "click", locator: { by: "css", value: "#save", authority: "trusted_manual" } }] }] }],
+  ["generated-case-origin-override-without-css", { ...base, origin: { type: "generated" }, cases: [{ ...uiCase, origin: { type: "manual" } }] }]
 ];
 for (const [name, candidate] of parityCases) check("m9.1-schema-runtime-parity-" + name, Boolean(schemaValidator(candidate)) === plan.validatePlan(candidate).ok);
 
@@ -105,7 +107,7 @@ check("m9.1-replace-uses-explicit-plan", replaced.cases.length === 1 && replaced
 
 const fixturePlan = { schema_version: "2.1", frozen_at: "2026-08-06T00:00:00.000Z", cases: [{ case_id: "fixture_case", feature_id: "demo", scenario: "normal", effective_tier: "fast", steps: [{ action: "goto", path: "/" }, { action: "click", selector: "#save" }, { action: "expect_visible", selector: "#success" }] }] };
 const migrated = plan.fromFixturePlan(fixturePlan);
-check("m9.1-fixture-plan-converts", plan.validatePlan(migrated).ok && migrated.origin.type === "migrated" && migrated.cases.length === 1);
+check("m9.1-fixture-plan-converts", plan.validatePlan(migrated, { authority: "migrated_fixture" }).ok && migrated.origin.type === "migrated" && migrated.cases.length === 1);
 check("m9.1-fixture-css-is-explicitly-trusted", migrated.cases[0].steps.some((step) => step.action === "click" && step.locator.by === "css" && step.locator.authority === "trusted_manual"));
 check("m9.1-schema-file-present", fs.existsSync(path.join(root, "packages/test-plan/schema/test-plan.schema.json")));
 

@@ -112,7 +112,8 @@
     "noCssCase": {
       "allOf": [
         {"$ref": "#/$defs/case"},
-        {"type": "object", "properties": {"setup": {"type": "array", "items": {"$ref": "#/$defs/noCssStep"}}, "steps": {"type": "array", "items": {"$ref": "#/$defs/noCssStep"}}, "cleanup": {"type": "array", "items": {"$ref": "#/$defs/noCssStep"}}}}
+        {"type": "object", "properties": {"setup": {"type": "array", "items": {"$ref": "#/$defs/noCssStep"}}, "steps": {"type": "array", "items": {"$ref": "#/$defs/noCssStep"}}, "cleanup": {"type": "array", "items": {"$ref": "#/$defs/noCssStep"}}}},
+        {"not": {"type": "object", "properties": {"origin": {"type": "object", "properties": {"type": {"not": {"const": "generated"}}}, "required": ["type"]}}, "required": ["origin"]}}
       ]
     },
     "relativePath": {"type": "string", "pattern": "^(?:/|\\./|[A-Za-z0-9_.-])[A-Za-z0-9_./?=&:%{}$-]*$", "not": {"pattern": "(^|/)\\.\\.(?:/|$)"}},

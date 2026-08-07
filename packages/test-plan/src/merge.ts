@@ -5,9 +5,9 @@ import { normalizePlan } from "./normalize.js";
 export type PlanMergeMode = "auto" | "overlay" | "replace";
 
 export function mergePlans(autoPlan: TestPlan, manualPlan: TestPlan | undefined, mode: PlanMergeMode): TestPlan {
-  const auto = normalizePlan(autoPlan);
+  const auto = normalizePlan(autoPlan, { authority: "generated" });
   if (!manualPlan || mode === "auto") return auto;
-  const manual = normalizePlan(manualPlan);
+  const manual = normalizePlan(manualPlan, { authority: "trusted_manual" });
   if (mode === "replace") return manual;
 
   const fixtures = mergeFixtures(auto.fixtures || {}, manual.fixtures || {});
@@ -16,11 +16,11 @@ export function mergePlans(autoPlan: TestPlan, manualPlan: TestPlan | undefined,
   for (const item of manual.cases) if (!auto.cases.some((candidate) => candidate.case_id === item.case_id)) mergedCases.push(withManualOrigin(item, manual));
   const merged = normalizePlan({
     ...auto,
-    origin: { ...auto.origin, type: "mixed", source_ref: manual.origin.source_ref || auto.origin.source_ref || "plan://overlay" },
+    origin: { type: "mixed", source_ref: manual.origin.source_ref || auto.origin.source_ref || "plan://overlay" },
     target: manual.target || auto.target,
     fixtures,
     cases: mergedCases
-  });
+  }, { authority: "trusted_manual" });
   return merged;
 }
 
