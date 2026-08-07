@@ -34,6 +34,13 @@
       "type": "object", "additionalProperties": false, "required": ["type"],
       "properties": {"type": {"enum": ["generated", "manual", "migrated", "bootstrap"]}, "source_ref": {"type": "string"}, "legacy_case_id": {"type": "string"}}
     },
+    "oracleBinding": {
+      "type": "object", "additionalProperties": false, "required": ["requirement_id", "step_refs"],
+      "properties": {
+        "requirement_id": {"type": "string", "pattern": "^[A-Za-z0-9_.:-]+$"},
+        "step_refs": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^step_[0-9]+$"}}
+      }
+    },
     "locator": {
       "oneOf": [
         {"type": "object", "additionalProperties": false, "required": ["by", "role"], "properties": {"by": {"const": "role"}, "role": {"type": "string", "minLength": 1}, "name": {"type": "string"}, "exact": {"type": "boolean"}}},
@@ -90,6 +97,7 @@
         "title": {"type": "string", "minLength": 1},
         "feature_id": {"type": "string", "minLength": 1},
         "requirement_refs": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^[A-Za-z0-9_.:-]+$"}},
+        "oracle_bindings": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/oracleBinding"}},
         "scenario": {"enum": ["normal", "required_field", "invalid_input", "empty_state", "boundary", "service_error", "network_failure", "not_found", "persistence", "cors"]},
         "priority": {"enum": ["P0", "P1", "P2"]}, "effective_tier": {"enum": ["smoke", "fast", "full"]},
         "kind": {"enum": ["ui", "api", "hybrid"]}, "risk": {"enum": ["read_only", "mutating", "destructive"]},

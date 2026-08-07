@@ -52,6 +52,11 @@ const apiCase = {
     { action: "expect_json", source: "${responses.created}", path: "body.id", exists: true }
   ]
 };
+const boundApiCase = {
+  ...apiCase,
+  case_id: "case_api_bound",
+  oracle_bindings: [{ requirement_id: "demo.visible", step_refs: ["step_1", "step_2"] }]
+};
 const hybridCase = {
   ...uiCase,
   case_id: "case_hybrid",
@@ -69,6 +74,8 @@ check("m9.1-valid-api-plan", plan.validatePlan(validApi).ok);
 check("m9.1-valid-hybrid-plan", plan.validatePlan(validHybrid).ok);
 check("m9.1-schema-valid-ui-plan", schemaValidator(validUi));
 check("m9.1-schema-valid-api-plan", schemaValidator(validApi));
+check("m9.9-schema-valid-explicit-oracle-bindings", schemaValidator({ ...base, plan_id: "contract_oracle", cases: [boundApiCase] }));
+check("m9.9-runtime-schema-parity-explicit-oracle-bindings", plan.validatePlan({ ...base, plan_id: "contract_oracle", cases: [boundApiCase] }).ok === schemaValidator({ ...base, plan_id: "contract_oracle", cases: [boundApiCase] }));
 check("m9.1-schema-valid-hybrid-plan", schemaValidator(validHybrid));
 check("m9.1-duplicate-case-id-rejected", !plan.validatePlan({ ...base, cases: [uiCase, uiCase] }).ok);
 check("m9.1-forbidden-action-rejected", !plan.validatePlan({ ...base, cases: [{ ...uiCase, steps: [{ action: "execute_js", code: "alert(1)" }] }] }).ok);
