@@ -38,7 +38,11 @@ try {
   check("m9.7-generated-plan-is-valid", testPlan.validatePlan(compiled.plan, { authority: "generated" }).ok && compiled.mappingAudit.match === "COMPLETE");
   check("m9.7-plan-digest-is-deterministic", compiled.digest === compiledAgain.digest);
   check("m9.7-requirements-map-to-cases-and-steps", Object.keys(compiled.mappingAudit.requirement_case_map).length === requirements.length && Object.keys(compiled.mappingAudit.case_step_map).length === compiled.plan.cases.length);
-  check("m9.7-oracles-bind-to-generated-assertions", Object.keys(compiled.mappingAudit.requirement_oracle_map).length === requirements.length && Object.values(compiled.mappingAudit.requirement_oracle_map).every((items) => items.every((item) => item.includes(":"))));
+  check("m9.7-oracles-bind-to-generated-assertions", Object.keys(compiled.mappingAudit.requirement_oracle_map).length === requirements.length && Object.entries(compiled.mappingAudit.requirement_oracle_map).every(([requirementId, items]) => {
+    const caseId = compiled.mappingAudit.requirement_case_map[requirementId]?.[0];
+    const generatedSteps = caseId ? compiled.mappingAudit.case_step_map[caseId] || [] : [];
+    return items.length > 0 && items.every((item) => item.startsWith(caseId + ":") && generatedSteps.includes(item));
+  }));
   check("m9.7-generated-case-count-is-requirement-driven", compiled.plan.cases.length === requirements.filter((item) => !["BLOCKED", "TIER_SKIPPED", "NOT_APPLICABLE"].includes(item.status)).length && compiled.plan.cases.length > 0);
   check("m9.7-generated-source-is-safe", !compiled.source.match(/node:|child_process|playwright/i));
   const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "autopw-m9.7-generated-"));
