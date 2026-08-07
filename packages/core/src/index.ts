@@ -4,13 +4,14 @@ import { compileFixturePlan, compileTestPlan, suiteDigest } from "@autopw/compil
 import { FIXTURE_PLAN, startDemoTarget, type FixtureVariant } from "@autopw/execution-fixture";
 import { PlaywrightFixtureRunner, type ExecutionMatrix } from "@autopw/execution";
 import { evaluateGate } from "@autopw/gate";
-import { writeReport } from "@autopw/reporting";
+import { writeReport, type ReportCoverageRow } from "@autopw/reporting";
 import { RunStorage, type ArtifactRef } from "@autopw/run-storage";
 import type { RunSnapshot } from "@autopw/operation-registry";
 import { discover } from "@autopw/discovery";
 import { analyzeDiff, deriveCoverage, digest, reconcileRequirementCoverage, type DerivationResult, type DiffResult, type Tier, type TestRequirement } from "@autopw/derivation";
 import { buildCandidateCatalog, buildRequirementPlannerInput, DeterministicFixturePlanner, LocalStructuredPlannerProvider, PlanTemplateCache, planExecutionInstances, plannerInputDigest, validatePlannerOutput, type CandidateCatalog, type PlannerInput, type PlannerOutput, type PlannerProviderOptions, type PlanTemplate } from "@autopw/planner";
 import { redactSecrets } from "@autopw/security";
+import { loadPlan, mergePlans, type PlanMergeMode, type TestPlan } from "@autopw/test-plan";
 
 export interface VerticalRun extends RunSnapshot { phase: string; }
 export interface VerticalResult { gate: "incomplete" | "infra" | "fail" | "unstable" | "pass"; audit_status: "COMPLETE" | "INCOMPLETE"; results_ref: ArtifactRef; report_ref: ArtifactRef; gate_summary: Record<string, unknown>; cases: Record<string, unknown>[]; evidence_refs: ArtifactRef[]; }
@@ -19,6 +20,27 @@ export type PlanEngineMode = "fixture" | "declarative";
 export type DiscoveryEngineMode = "legacy" | "structured";
 export interface EngineModes { plan_engine: PlanEngineMode; discovery_engine: DiscoveryEngineMode; }
 export const DEFAULT_ENGINE_MODES: Readonly<EngineModes> = Object.freeze({ plan_engine: "fixture", discovery_engine: "legacy" });
+
+export interface TargetSession { mode: "managed" | "external"; baseUrl: string; close(): Promise<void>; }
+export interface TargetProvider { open(): Promise<TargetSession>; }
+
+export class ManagedFixtureTargetProvider implements TargetProvider {
+  constructor(private readonly fixtureVariant: FixtureVariant = "pass") {}
+  async open(): Promise<TargetSession> {
+    const target = await startDemoTarget(this.fixtureVariant);
+    return { mode: "managed", baseUrl: target.baseUrl, close: target.close };
+  }
+}
+
+export class ExternalTargetProvider implements TargetProvider {
+  readonly baseUrl: string;
+  constructor(baseUrl: string) {
+    const parsed = new URL(baseUrl);
+    if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) throw Object.assign(new Error("external target URL is invalid"), { code: "EXTERNAL_TARGET_URL_INVALID" });
+    this.baseUrl = parsed.toString().replace(/\/$/, "");
+  }
+  async open(): Promise<TargetSession> { return { mode: "external", baseUrl: this.baseUrl, close: async () => undefined }; }
+}
 
 export function resolveEngineModes(input?: Partial<EngineModes>): EngineModes {
   const plan_engine = input?.plan_engine ?? DEFAULT_ENGINE_MODES.plan_engine;
@@ -38,15 +60,17 @@ export class AuditVerticalSlice {
   readonly plannerConfig: Partial<PlannerProviderOptions>;
   readonly production: boolean;
   readonly engineModes: EngineModes;
+  readonly targetProvider: TargetProvider;
   readonly preflightCache = new Map<string, { expires_at: number; value: CoveragePreview }>();
 
-  constructor({ root, dataRoot, fixtureVariant, plannerConfig, production, engineModes }: { root: string; dataRoot: string; fixtureVariant?: FixtureVariant; plannerConfig?: Partial<PlannerProviderOptions>; production?: boolean; engineModes?: Partial<EngineModes> }) {
+  constructor({ root, dataRoot, fixtureVariant, plannerConfig, production, engineModes, targetProvider }: { root: string; dataRoot: string; fixtureVariant?: FixtureVariant; plannerConfig?: Partial<PlannerProviderOptions>; production?: boolean; engineModes?: Partial<EngineModes>; targetProvider?: TargetProvider }) {
     this.root = path.resolve(root);
     this.storage = new RunStorage(dataRoot);
     this.fixtureVariant = fixtureVariant;
     this.plannerConfig = plannerConfig || {};
     this.production = Boolean(production);
     this.engineModes = resolveEngineModes(engineModes);
+    this.targetProvider = targetProvider || new ManagedFixtureTargetProvider(this.variant(fixtureVariant));
   }
 
   async execute({ run, request, onPhase }: { run: VerticalRun; request: Record<string, unknown>; onPhase: PhaseCallback }): Promise<VerticalResult> {
@@ -59,9 +83,9 @@ export class AuditVerticalSlice {
     this.storage.writeJson(run.run_id, "host-context.json", { ...(redactSecrets(requestedSnapshot) as Record<string, unknown>), workspace_id: run.workspace_id, workspace_root: "<authorized>", production: this.production });
     this.storage.appendEvent(run.run_id, { kind: "RUN_CREATED", phase: "CREATED", detail: { variant } });
     commitPhase("TARGET_READY", 8, "poll get_run_status");
-    const target = await startDemoTarget(variant);
+    const target = await this.targetProvider.open();
     try {
-      this.storage.writeJson(run.run_id, "target.json", { base_url: "loopback", health: "ready", started_at: startedAt });
+      this.storage.writeJson(run.run_id, "target.json", { mode: target.mode, base_url: new URL(target.baseUrl).origin, health: "ready", started_at: startedAt });
       commitPhase("SEED_RESOLVED", 15, "poll get_run_status");
       this.storage.writeJson(run.run_id, "seed.json", { result: "SKIPPED", reset_capable: true, idempotent: true, at: new Date().toISOString() });
       commitPhase("DISCOVERED", 24, "poll get_run_status");
@@ -76,8 +100,15 @@ export class AuditVerticalSlice {
       this.storage.writeJson(run.run_id, "planner-audit.json", planner.audit);
       commitPhase("PLAN_FILLED", 36, "poll get_run_status");
       const compiled = this.engineModes.plan_engine === "declarative" ? compileTestPlan({ requirements: planner.requirements, candidateCatalog: planner.candidateCatalog || emptyCatalog(), plannerOutput: planner.output }) : compileFixturePlan(materializeFixturePlan(FIXTURE_PLAN, planner.output));
-      this.storage.writeJson(run.run_id, "plan.json", compiled.plan);
-      this.storage.writeJson(run.run_id, "mapping-audit.json", compiled.mappingAudit);
+      const manualPlan = this.engineModes.plan_engine === "declarative" ? manualPlanFromRequest(request) : undefined;
+      const planMode = resolvePlanMode(request.plan_mode);
+      const effectivePlan = manualPlan ? mergePlans(compiled.plan as TestPlan, manualPlan, planMode, { manualAuthority: { authority: "trusted_manual" } }) : compiled.plan;
+      const effectiveCaseMap = this.engineModes.plan_engine === "declarative" ? requirementCaseMapFor(planner.requirements, effectivePlan as TestPlan) : {};
+      const mappingAudit = this.engineModes.plan_engine === "declarative" ? { ...compiled.mappingAudit, generated_case_ids: (effectivePlan as TestPlan).cases.map((item) => item.case_id).sort(), planned_requirement_ids: Object.keys(effectiveCaseMap).sort(), requirement_case_map: effectiveCaseMap, match: planner.requirements.filter((item) => !["TIER_SKIPPED", "NOT_APPLICABLE"].includes(item.status)).every((item) => effectiveCaseMap[item.requirement_id]?.length) ? "COMPLETE" as const : "PARTIAL" as const } : compiled.mappingAudit;
+      const planSource = manualPlan ? planMode === "overlay" ? "manual overlay" : "manual" : "generated";
+      this.storage.writeJson(run.run_id, "plan.json", effectivePlan);
+      this.storage.writeJson(run.run_id, "mapping-audit.json", mappingAudit);
+      this.storage.writeJson(run.run_id, "plan-source.json", { mode: planSource, origin: (effectivePlan as TestPlan).origin || { type: "migrated" }, manual_plan: Boolean(manualPlan) });
       commitPhase("PLAN_FROZEN", 42, "poll get_run_status");
       commitPhase("SUITE_GENERATED", 48, "poll get_run_status");
       this.storage.writeArtifact(run.run_id, "suite.ts", "suite.ts", compiled.source);
@@ -85,30 +116,32 @@ export class AuditVerticalSlice {
       commitPhase("SUITE_FROZEN", 54, "poll get_run_status");
       commitPhase("RUNNING", 60, "poll get_run_status");
       const execution = this.engineModes.plan_engine === "declarative"
-        ? await this.runner.run({ runId: run.run_id, baseUrl: target.baseUrl, allowedOrigins: this.resolvedAllowedOrigins(request), plan: compiled.plan as import("@autopw/test-plan").TestPlan, matrix: matrixFromRequest(request), tier: String(request.tier || request.base_tier || "fast") as "smoke" | "fast" | "full", storage: this.storage, planAuthority: "generated" })
-        : await this.runner.run({ runId: run.run_id, baseUrl: target.baseUrl, allowedOrigins: this.resolvedAllowedOrigins(request), plan: compiled.plan as import("@autopw/execution-fixture").FixturePlan, variant, matrix: matrixFromRequest(request), tier: String(request.tier || request.base_tier || "fast") as "smoke" | "fast" | "full", storage: this.storage });
-      if (this.engineModes.plan_engine === "declarative") this.storage.writeJson(run.run_id, "requirement-coverage.json", reconcileRequirementCoverage(planner.requirements, compiled.mappingAudit.requirement_case_map || {}, execution.results));
+        ? await this.runner.run({ runId: run.run_id, baseUrl: target.baseUrl, allowedOrigins: this.resolvedAllowedOrigins(request), plan: effectivePlan as TestPlan, matrix: matrixFromRequest(request), tier: String(request.tier || request.base_tier || "fast") as "smoke" | "fast" | "full", storage: this.storage, planAuthority: manualPlan ? "trusted_manual" : "generated" })
+        : await this.runner.run({ runId: run.run_id, baseUrl: target.baseUrl, allowedOrigins: this.resolvedAllowedOrigins(request), plan: effectivePlan as import("@autopw/execution-fixture").FixturePlan, variant, matrix: matrixFromRequest(request), tier: String(request.tier || request.base_tier || "fast") as "smoke" | "fast" | "full", storage: this.storage });
+      const reconciledCoverage = this.engineModes.plan_engine === "declarative" ? reconcileRequirementCoverage(planner.requirements, effectiveCaseMap, execution.results) : undefined;
+      if (reconciledCoverage) this.storage.writeJson(run.run_id, "requirement-coverage.json", reconciledCoverage);
       commitPhase("EXECUTION_FINISHED", 78, "poll get_run_status");
-      const audit = auditExecution(compiled.plan.cases.map((item) => item.case_id), execution.results, execution.manifest);
+      const audit = auditExecution(effectivePlan.cases.map((item) => item.case_id), execution.results, execution.manifest, this.engineModes.plan_engine === "declarative" ? { requirements: planner.requirements, requirementCaseMap: effectiveCaseMap, coverage: reconciledCoverage, cases: effectivePlan.cases } : {});
       this.storage.writeJson(run.run_id, "completion-audit.json", audit);
       this.storage.writeJson(run.run_id, "issues.json", { schema_version: "2.1", issues: audit.issues });
       commitPhase("RUNTIME_FINALIZED", 84, "poll get_run_status");
       commitPhase("AUDITED", 89, "poll get_run_status");
-      const gate = evaluateGate({ auditStatus: audit.audit_status, issues: audit.issues });
+      const gate = evaluateGate({ audit, coverage: reconciledCoverage, gatePolicy: gatePolicyFromRequest(request), issues: audit.issues, executionResults: execution.results });
       const resultRef = this.storage.writeArtifact(run.run_id, "results.json", "results.json", "{}\n");
-      const results = { schema_version: "2.1", run_id: run.run_id, gate: gate.gate, audit_status: audit.audit_status, exit_code: gate.exit_code, results_ref: resultRef, summary: audit.summary, issues: audit.issues };
+      const results = { schema_version: "2.1", run_id: run.run_id, gate: gate.gate, audit_status: audit.audit_status, exit_code: gate.exit_code, results_ref: resultRef, summary: { ...audit.summary, coverage: reconciledCoverage }, issues: audit.issues };
       const persistedResultsRef = this.storage.writeArtifact(run.run_id, "results.json", "results.json", JSON.stringify(results, null, 2) + "\n");
-      const report = writeReport({ storage: this.storage, runId: run.run_id, gate: gate.gate, auditStatus: audit.audit_status, summary: audit.summary, issues: audit.issues, resultsRef: persistedResultsRef });
+      const report = writeReport({ storage: this.storage, runId: run.run_id, gate: gate.gate, auditStatus: audit.audit_status, summary: { ...audit.summary, coverage: reconciledCoverage }, issues: audit.issues, resultsRef: persistedResultsRef, planSource, target: target.mode, coverage: coverageRows(planner.requirements, effectiveCaseMap, execution.results), cases: effectivePlan.cases });
+      this.storage.writeJson(run.run_id, "latest.json", { run_id: run.run_id, gate: gate.gate, audit_status: audit.audit_status, plan_source: planSource, report: { markdown: "artifacts/report.md", html: "artifacts/report.html", results: "artifacts/results.json" } });
       commitPhase("REPORTED", 96, "poll get_run_status");
       commitPhase("GATED", 100, "get_run_result");
       const batchByExecution = new Map(execution.manifest.instances.map((instance) => [String(instance.execution_id), String(instance.batch_id)]));
-      const tierByCase = new Map(compiled.plan.cases.map((item) => [item.case_id, item.effective_tier]));
-      return { gate: gate.gate, audit_status: audit.audit_status, results_ref: persistedResultsRef, report_ref: report.reportRef, gate_summary: { ...audit.summary, reason: gate.reason, issues: audit.issues }, cases: execution.results.map((item) => ({ case_id: item.case_id, execution_id: item.execution_id, status: item.status, tier: tierByCase.get(item.case_id) || String(request.tier || request.base_tier || "fast"), batch_id: batchByExecution.get(item.execution_id), error: item.error, evidence_refs: item.evidence_refs })), evidence_refs: execution.results.flatMap((item) => item.evidence_refs) };
+      const tierByCase = new Map(effectivePlan.cases.map((item) => [item.case_id, item.effective_tier]));
+      return { gate: gate.gate, audit_status: audit.audit_status, results_ref: persistedResultsRef, report_ref: report.reportRef, gate_summary: { ...audit.summary, coverage: reconciledCoverage, reason: gate.reason, issues: audit.issues }, cases: execution.results.map((item) => ({ case_id: item.case_id, execution_id: item.execution_id, status: item.status, tier: tierByCase.get(item.case_id) || String(request.tier || request.base_tier || "fast"), batch_id: batchByExecution.get(item.execution_id), error: item.error, evidence_refs: item.evidence_refs })), evidence_refs: execution.results.flatMap((item) => item.evidence_refs) };
     } finally { await target.close(); }
   }
 
   async preview({ request, operationId }: { request: Record<string, unknown>; operationId: string }): Promise<CoveragePreview> {
-    const target = await startDemoTarget(this.variant(this.fixtureVariant));
+    const target = await this.targetProvider.open();
     try { return await this.deriveCoverage({ request, artifactId: operationId, targetUrl: target.baseUrl }); }
     finally { await target.close(); }
   }
@@ -117,7 +150,7 @@ export class AuditVerticalSlice {
     const key = stableJson(Object.fromEntries(Object.entries(request).filter(([name]) => name !== "client_request_id")));
     const cached = this.preflightCache.get(key);
     if (cached && cached.expires_at > Date.now()) return cached.value;
-    const target = await startDemoTarget(this.variant(this.fixtureVariant));
+    const target = await this.targetProvider.open();
     try {
       const value = await this.deriveCoverage({ request, targetUrl: target.baseUrl });
       const tier = String(request.tier || request.base_tier || "fast") as Tier;
@@ -232,6 +265,8 @@ export class AuditVerticalSlice {
   private resolvedAllowedOrigins(request: Record<string, unknown>): string[] {
     const snapshot = isRecord(request.__trust_snapshot) ? request.__trust_snapshot : undefined;
     const origins = snapshot && Array.isArray(snapshot.allowed_origins) ? snapshot.allowed_origins.filter((origin): origin is string => typeof origin === "string") : [];
+    if (origins.length === 0 && typeof request.__target_url === "string") origins.push(new URL(request.__target_url).origin);
+    if (origins.length === 0 && Array.isArray(request.__allowed_origins)) origins.push(...request.__allowed_origins.filter((origin): origin is string => typeof origin === "string"));
     if (origins.length === 0) throw Object.assign(new Error("NETWORK_POLICY_EMPTY"), { code: "NETWORK_POLICY_EMPTY" });
     return origins;
   }
@@ -239,6 +274,26 @@ export class AuditVerticalSlice {
 
 function plannerError(message: string): Error & { code: string } { return Object.assign(new Error(message), { code: "PLAN_DEFECT" }); }
 function requirementsFromCoverage(coverage: CoveragePreview): TestRequirement[] { const requirements = coverage.derivation.cdd.requirements; return Array.isArray(requirements) ? requirements as TestRequirement[] : []; }
+function manualPlanFromRequest(request: Record<string, unknown>): TestPlan | undefined { return request.__manual_plan ? loadPlan(request.__manual_plan as TestPlan, { authority: "trusted_manual" }) : undefined; }
+function resolvePlanMode(value: unknown): PlanMergeMode { const mode = value === undefined ? "auto" : String(value); if (!["auto", "overlay", "replace"].includes(mode)) throw Object.assign(new Error("invalid plan mode"), { code: "INVALID_PLAN_MODE" }); return mode as PlanMergeMode; }
+function requirementCaseMapFor(requirements: TestRequirement[], plan: TestPlan): Record<string, string[]> {
+  const ids = new Set(requirements.map((item) => item.requirement_id));
+  const map: Record<string, string[]> = {};
+  for (const item of plan.cases) for (const requirementId of item.requirement_refs) if (ids.has(requirementId)) (map[requirementId] ||= []).push(item.case_id);
+  return Object.fromEntries(Object.entries(map).sort(([a], [b]) => a.localeCompare(b)).map(([key, value]) => [key, [...new Set(value)].sort()]));
+}
+function gatePolicyFromRequest(request: Record<string, unknown>): { strategy?: "product" | "strict"; min_p0_coverage_pct?: number; max_flaky_cases?: number } {
+  const value = isRecord(request.__gate_policy) ? request.__gate_policy : {};
+  return { strategy: value.strategy === "strict" ? "strict" : "product", min_p0_coverage_pct: Number(value.min_p0_coverage_pct ?? request.min_p0_coverage_pct ?? 100), max_flaky_cases: Number(value.max_flaky_cases ?? request.max_flaky_cases ?? 0) };
+}
+function coverageRows(requirements: TestRequirement[], map: Record<string, string[]>, results: Array<{ case_id: string; status: string; evidence_refs?: unknown[] }>): ReportCoverageRow[] {
+  const resultByCase = new Map(results.map((item) => [item.case_id, item]));
+  return requirements.map((item) => {
+    const caseIds = map[item.requirement_id] || [];
+    const matched = caseIds.map((caseId) => resultByCase.get(caseId)).filter((value): value is { case_id: string; status: string; evidence_refs?: unknown[] } => Boolean(value));
+    return { requirement_id: item.requirement_id, priority: item.priority, intent: item.intent, source: item.source_refs, plan_status: caseIds.length ? "PLANNED" : item.status, execution_status: matched.length ? matched.map((value) => value.status).join(",") : "NOT_EXECUTED", evidence: matched.length && matched.every((value) => (value.evidence_refs || []).length > 0) ? "COMPLETE" : "MISSING", reason: item.reason || "" };
+  });
+}
 function emptyCatalog(): CandidateCatalog { return { routes: {}, actions: {}, locators: {}, inputs: {}, expectations: {}, endpoints: {} }; }
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> { let timer: NodeJS.Timeout | undefined; try { return await Promise.race([promise, new Promise<T>((_, reject) => { timer = setTimeout(() => reject(plannerError("PLANNER_TIMEOUT")), timeoutMs); })]); } finally { if (timer) clearTimeout(timer); } }
 function fixtureCandidates(origin: string): CandidateCatalog {

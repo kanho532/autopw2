@@ -11,7 +11,7 @@ export type RequirementStatus = "REQUIRED" | "PLANNED" | "BLOCKED" | "NOT_APPLIC
 export interface RequirementPrecondition { kind: string; refs: string[]; details?: Record<string, unknown>; }
 export interface RequirementOracle { kind: string; assertion: string; details?: Record<string, unknown>; }
 export interface TestRequirement { requirement_id: string; feature_id: string; intent: RequirementIntent; scenario: string; priority: "P0" | "P1" | "P2"; source_refs: string[]; preconditions: RequirementPrecondition[]; oracle: RequirementOracle | null; risk: "read_only" | "mutating" | "destructive"; confidence: number; status: RequirementStatus; reason?: string; }
-export interface RequirementCoverage { required: number; planned: number; executable: number; executed: number; passed: number; evidence_complete: number; p0_required: number; p0_planned: number; p0_executable: number; }
+export interface RequirementCoverage { required: number; planned: number; executable: number; executed: number; passed: number; evidence_complete: number; p0_required: number; p0_planned: number; p0_executable: number; p0_executed: number; p0_passed: number; }
 export interface RequirementExecutionLike { case_id: string; status: string; evidence_refs?: unknown[]; }
 export interface DiffResult { status: "NOOP" | "CHANGED"; changed_files: { status: string; path: string; feature_ids: string[]; new_feature: boolean }[]; affected_features: string[]; new_features: string[]; }
 export interface DerivationInput { discovery: DiscoveryResult; tier: Tier; diff?: DiffResult; matrix?: MatrixProfile; mandatory_capabilities?: { id: string; priority: "P0" | "P1" | "P2"; feature_ids: string[]; on_missing: "incomplete" | "warn" }[]; input_versions?: Record<string, string>; destructive_allowed?: boolean; allow_destructive?: boolean; }
@@ -129,7 +129,7 @@ export function reconcileRequirementCoverage(requirements: TestRequirement[], re
   const passed = executed.filter((item) => (requirementCaseMap[item.requirement_id] || []).some((caseId) => executionByCase.get(caseId)?.status === "PASSED"));
   const evidence_complete = passed.filter((item) => (requirementCaseMap[item.requirement_id] || []).some((caseId) => (executionByCase.get(caseId)?.evidence_refs || []).length > 0));
   const p0 = required.filter((item) => item.priority === "P0");
-  return { required: required.length, planned: planned.length, executable: executable.length, executed: executed.length, passed: passed.length, evidence_complete: evidence_complete.length, p0_required: p0.length, p0_planned: p0.filter((item) => planned.includes(item)).length, p0_executable: p0.filter((item) => executable.includes(item)).length };
+  return { required: required.length, planned: planned.length, executable: executable.length, executed: executed.length, passed: passed.length, evidence_complete: evidence_complete.length, p0_required: p0.length, p0_planned: p0.filter((item) => planned.includes(item)).length, p0_executable: p0.filter((item) => executable.includes(item)).length, p0_executed: p0.filter((item) => executed.includes(item)).length, p0_passed: p0.filter((item) => passed.includes(item)).length };
 }
 
 export function analyzeDiff({ diffRef, root, mappings = [], changedFiles }: { diffRef?: string; root?: string; mappings?: { file_glob: string; features: string[]; propagate?: boolean }[]; changedFiles?: { status: string; path: string }[] }): DiffResult {
