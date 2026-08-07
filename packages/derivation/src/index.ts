@@ -125,9 +125,10 @@ export function reconcileRequirementCoverage(requirements: TestRequirement[], re
   const planned = required.filter((item) => (requirementCaseMap[item.requirement_id] || []).length > 0 || item.status === "PLANNED");
   const executable = planned.filter((item) => item.status !== "BLOCKED" && item.oracle !== null);
   const executionByCase = new Map(executionResults.map((item) => [item.case_id, item]));
-  const executed = executable.filter((item) => (requirementCaseMap[item.requirement_id] || []).some((caseId) => executionByCase.has(caseId)));
-  const passed = executed.filter((item) => (requirementCaseMap[item.requirement_id] || []).some((caseId) => executionByCase.get(caseId)?.status === "PASSED"));
-  const evidence_complete = passed.filter((item) => (requirementCaseMap[item.requirement_id] || []).some((caseId) => (executionByCase.get(caseId)?.evidence_refs || []).length > 0));
+  const mappedCases = (item: TestRequirement): string[] => [...new Set(requirementCaseMap[item.requirement_id] || [])];
+  const executed = executable.filter((item) => mappedCases(item).length > 0 && mappedCases(item).every((caseId) => executionByCase.has(caseId)));
+  const passed = executed.filter((item) => mappedCases(item).every((caseId) => executionByCase.get(caseId)?.status === "PASSED"));
+  const evidence_complete = passed.filter((item) => mappedCases(item).every((caseId) => (executionByCase.get(caseId)?.evidence_refs || []).length > 0));
   const p0 = required.filter((item) => item.priority === "P0");
   return { required: required.length, planned: planned.length, executable: executable.length, executed: executed.length, passed: passed.length, evidence_complete: evidence_complete.length, p0_required: p0.length, p0_planned: p0.filter((item) => planned.includes(item)).length, p0_executable: p0.filter((item) => executable.includes(item)).length, p0_executed: p0.filter((item) => executed.includes(item)).length, p0_passed: p0.filter((item) => passed.includes(item)).length };
 }

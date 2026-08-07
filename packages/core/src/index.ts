@@ -104,7 +104,10 @@ export class AuditVerticalSlice {
       const planMode = resolvePlanMode(request.plan_mode);
       const effectivePlan = manualPlan ? mergePlans(compiled.plan as TestPlan, manualPlan, planMode, { manualAuthority: { authority: "trusted_manual" } }) : compiled.plan;
       const effectiveCaseMap = this.engineModes.plan_engine === "declarative" ? requirementCaseMapFor(planner.requirements, effectivePlan as TestPlan) : {};
-      const mappingAudit = this.engineModes.plan_engine === "declarative" ? { ...compiled.mappingAudit, generated_case_ids: (effectivePlan as TestPlan).cases.map((item) => item.case_id).sort(), planned_requirement_ids: Object.keys(effectiveCaseMap).sort(), requirement_case_map: effectiveCaseMap, match: planner.requirements.filter((item) => !["TIER_SKIPPED", "NOT_APPLICABLE"].includes(item.status)).every((item) => effectiveCaseMap[item.requirement_id]?.length) ? "COMPLETE" as const : "PARTIAL" as const } : compiled.mappingAudit;
+      const effectiveOracleMap = this.engineModes.plan_engine === "declarative" ? requirementOracleMapFor(planner.requirements, effectivePlan as TestPlan) : {};
+      const requiredRequirements = planner.requirements.filter((item) => !["TIER_SKIPPED", "NOT_APPLICABLE"].includes(item.status));
+      const mappingComplete = requiredRequirements.every((item) => effectiveCaseMap[item.requirement_id]?.length && effectiveOracleMap[item.requirement_id]?.length);
+      const mappingAudit = this.engineModes.plan_engine === "declarative" ? { ...compiled.mappingAudit, generated_case_ids: (effectivePlan as TestPlan).cases.map((item) => item.case_id).sort(), planned_requirement_ids: Object.keys(effectiveCaseMap).sort(), requirement_case_map: effectiveCaseMap, requirement_oracle_map: effectiveOracleMap, match: mappingComplete ? "COMPLETE" as const : "PARTIAL" as const } : compiled.mappingAudit;
       const planSource = manualPlan ? planMode === "overlay" ? "manual overlay" : "manual" : "generated";
       this.storage.writeJson(run.run_id, "plan.json", effectivePlan);
       this.storage.writeJson(run.run_id, "mapping-audit.json", mappingAudit);
@@ -121,7 +124,7 @@ export class AuditVerticalSlice {
       const reconciledCoverage = this.engineModes.plan_engine === "declarative" ? reconcileRequirementCoverage(planner.requirements, effectiveCaseMap, execution.results) : undefined;
       if (reconciledCoverage) this.storage.writeJson(run.run_id, "requirement-coverage.json", reconciledCoverage);
       commitPhase("EXECUTION_FINISHED", 78, "poll get_run_status");
-      const audit = auditExecution(effectivePlan.cases.map((item) => item.case_id), execution.results, execution.manifest, this.engineModes.plan_engine === "declarative" ? { requirements: planner.requirements, requirementCaseMap: effectiveCaseMap, coverage: reconciledCoverage, cases: effectivePlan.cases } : {});
+      const audit = auditExecution(effectivePlan.cases.map((item) => item.case_id), execution.results, execution.manifest, this.engineModes.plan_engine === "declarative" ? { requirements: planner.requirements, requirementCaseMap: effectiveCaseMap, requirementOracleMap: effectiveOracleMap, coverage: reconciledCoverage, cases: effectivePlan.cases } : {});
       this.storage.writeJson(run.run_id, "completion-audit.json", audit);
       this.storage.writeJson(run.run_id, "issues.json", { schema_version: "2.1", issues: audit.issues });
       commitPhase("RUNTIME_FINALIZED", 84, "poll get_run_status");
@@ -280,6 +283,17 @@ function requirementCaseMapFor(requirements: TestRequirement[], plan: TestPlan):
   const ids = new Set(requirements.map((item) => item.requirement_id));
   const map: Record<string, string[]> = {};
   for (const item of plan.cases) for (const requirementId of item.requirement_refs) if (ids.has(requirementId)) (map[requirementId] ||= []).push(item.case_id);
+  return Object.fromEntries(Object.entries(map).sort(([a], [b]) => a.localeCompare(b)).map(([key, value]) => [key, [...new Set(value)].sort()]));
+}
+function requirementOracleMapFor(requirements: TestRequirement[], plan: TestPlan): Record<string, string[]> {
+  const ids = new Set(requirements.map((item) => item.requirement_id));
+  const map: Record<string, string[]> = {};
+  for (const item of plan.cases) {
+    const steps = [...(item.setup || []), ...item.steps, ...(item.cleanup || [])];
+    const bindings = steps.flatMap((step, index) => step.action.startsWith("expect_") ? [`${item.case_id}:step_${index}`] : []);
+    if (!bindings.length) continue;
+    for (const requirementId of item.requirement_refs) if (ids.has(requirementId)) (map[requirementId] ||= []).push(...bindings);
+  }
   return Object.fromEntries(Object.entries(map).sort(([a], [b]) => a.localeCompare(b)).map(([key, value]) => [key, [...new Set(value)].sort()]));
 }
 function gatePolicyFromRequest(request: Record<string, unknown>): { strategy?: "product" | "strict"; min_p0_coverage_pct?: number; max_flaky_cases?: number } {

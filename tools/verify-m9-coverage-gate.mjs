@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 const root = path.resolve(import.meta.dirname, "..");
 const audit = await import(pathToFileURL(path.join(root, "packages", "audit", "dist", "index.js")).href);
 const gate = await import(pathToFileURL(path.join(root, "packages", "gate", "dist", "index.js")).href);
+const derivation = await import(pathToFileURL(path.join(root, "packages", "derivation", "dist", "index.js")).href);
 const reporting = await import(pathToFileURL(path.join(root, "packages", "reporting", "dist", "index.js")).href);
 const storage = await import(pathToFileURL(path.join(root, "packages", "run-storage", "dist", "index.js")).href);
 
@@ -17,7 +18,7 @@ const coverage = { required: 1, planned: 1, executable: 1, executed: 1, passed: 
 const result = { execution_id: "EXE-m9.8", case_id: "case_p0", status: "PASSED", evidence_refs: [{ handle: "art_api", kind: "api-response" }], cleanup_status: "PASSED", attempts: [], path: [] };
 const manifest = { instances: [{ execution_id: result.execution_id, batch_id: "batch" }] };
 const cases = [{ case_id: result.case_id, kind: "api", risk: "mutating" }];
-const complete = audit.auditExecution([result.case_id], [result], manifest, { requirements: [{ requirement_id: "req_p0", priority: "P0" }], requirementCaseMap: { req_p0: [result.case_id] }, coverage, cases });
+const complete = audit.auditExecution([result.case_id], [result], manifest, { requirements: [{ requirement_id: "req_p0", priority: "P0", oracle: { kind: "status", assertion: "returns 200" } }], requirementCaseMap: { req_p0: [result.case_id] }, requirementOracleMap: { req_p0: ["case_p0:step_0"] }, coverage, cases });
 check("m9.8-requirement-reconciliation-complete", complete.requirement_reconciliation === "COMPLETE");
 check("m9.8-evidence-reconciliation-complete", complete.evidence_complete === true);
 check("m9.8-cleanup-reconciliation-complete", complete.cleanup_complete === true);
@@ -26,6 +27,16 @@ check("m9.8-p0-gap-is-incomplete", gate.evaluateGate({ audit: complete, coverage
 check("m9.8-product-defect-is-fail", gate.evaluateGate({ audit: complete, coverage, issues: [{ classification: "PRODUCT_DEFECT" }] }).gate === "fail");
 check("m9.8-infra-defect-is-infra", gate.evaluateGate({ audit: complete, coverage, issues: [{ classification: "INFRA_DEFECT" }] }).gate === "infra");
 check("m9.8-flaky-threshold-is-unstable", gate.evaluateGate({ audit: complete, coverage, issues: [{ classification: "UNSTABLE" }], gatePolicy: { max_flaky_cases: 0 } }).gate === "unstable");
+
+const cleanupFailed = audit.auditExecution([result.case_id], [{ ...result, cleanup_status: "FAILED" }], manifest, { requirements: [{ requirement_id: "req_p0", priority: "P0", oracle: { kind: "status", assertion: "returns 200" } }], requirementCaseMap: { req_p0: [result.case_id] }, requirementOracleMap: { req_p0: ["case_p0:step_0"] }, coverage, cases: [{ ...cases[0], risk: "mutating", execution_policy: { isolated_fixture_required: true } }] });
+check("m9.8-isolation-policy-does-not-forgive-cleanup", cleanupFailed.cleanup_complete === false && gate.evaluateGate({ audit: cleanupFailed, coverage, issues: cleanupFailed.issues }).gate === "incomplete");
+
+const secondResult = { ...result, execution_id: "EXE-m9.8-second", case_id: "case_p0_second", status: "FAILED" };
+const multiCoverage = derivation.reconcileRequirementCoverage([{ requirement_id: "req_p0", feature_id: "todo", intent: "route_loads", scenario: "normal", priority: "P0", source_refs: [], preconditions: [], oracle: { kind: "status", assertion: "returns 200" }, risk: "read_only", confidence: 1, status: "REQUIRED" }], { req_p0: [result.case_id, secondResult.case_id] }, [result, secondResult]);
+check("m9.8-multi-case-requires-all-cases", multiCoverage.executed === 1 && multiCoverage.passed === 0);
+
+const missingOracle = audit.auditExecution([result.case_id], [result], manifest, { requirements: [{ requirement_id: "req_p0", priority: "P0", oracle: { kind: "status", assertion: "returns 200" } }], requirementCaseMap: { req_p0: [result.case_id] }, requirementOracleMap: {}, coverage, cases });
+check("m9.9-manual-plan-cannot-launder-oracle", missingOracle.oracle_reconciliation === "MISMATCH" && gate.evaluateGate({ audit: missingOracle, coverage, issues: missingOracle.issues }).gate === "incomplete");
 
 const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "autopw-m9.8-"));
 try {
