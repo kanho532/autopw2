@@ -162,7 +162,9 @@ export class PlaywrightPlanRunner {
     } finally {
       try {
         if (page && item.cleanup) {
-          try { await this.runCleanup({ page, context, steps: item.cleanup, pathResults, baseUrl, scopes, network, storage, runId, caseId: item.case_id, consoleErrors, fixtureVariant, deadline }); cleanupStatus = "PASSED"; }
+          // Start the cleanup budget when cleanup begins, not when the test attempt begins.
+          const cleanupDeadline = timeoutMs === undefined ? undefined : Date.now() + Math.min(Math.max(timeoutMs, CLEANUP_TIMEOUT_FLOOR_MS), CLEANUP_TIMEOUT_CEILING_MS);
+          try { await this.runCleanup({ page, context, steps: item.cleanup, pathResults, baseUrl, scopes, network, storage, runId, caseId: item.case_id, consoleErrors, fixtureVariant, deadline: cleanupDeadline }); cleanupStatus = "PASSED"; }
           catch (error) { cleanupStatus = "FAILED"; if (!testFailure) testFailure = isFailure(error) ? error : asFailure(error, "cleanup"); }
         }
         if (page && (item.kind === "ui" || item.kind === "hybrid")) {
@@ -262,6 +264,8 @@ interface Failure { error: string; classification: "PRODUCT_DEFECT" | "TEST_DEFE
 interface AttemptOutcome { status: "PASSED" | "FAILED"; path: ExecutionPathStep[]; evidence_refs: ArtifactRef[]; error?: string; classification?: Failure["classification"]; redaction_status: "COMPLETE" | "INCOMPLETE"; cleanup_status: "PASSED" | "FAILED" | "SKIPPED"; }
 
 const DEFAULT_MATRIX: Required<ExecutionMatrix> = { browsers: ["chromium"], viewports: [{ width: 1280, height: 720 }], locales: ["en-US"], auth_scope_ids: ["as_demo"] };
+const CLEANUP_TIMEOUT_FLOOR_MS = 1_000;
+const CLEANUP_TIMEOUT_CEILING_MS = 10_000;
 function buildBatches(matrix: ExecutionMatrix | undefined): MatrixBatch[] { const value = { ...DEFAULT_MATRIX, ...(matrix || {}) }; const batches: MatrixBatch[] = []; for (const browser of value.browsers) for (const viewport of value.viewports) for (const locale of value.locales) for (const auth_scope_id of value.auth_scope_ids) { const key = JSON.stringify({ browser, viewport, locale, auth_scope_id }); batches.push({ batch_id: "BAT-" + crypto.createHash("sha256").update(key).digest("hex").slice(0, 16), browser, viewport, locale, auth_scope_id }); } return batches; }
 function browserType(name: BrowserName): BrowserType { return name === "firefox" ? firefox : name === "webkit" ? webkit : chromium; }
 function executionId(caseId: string, batch: string): string { return "EXE-" + crypto.createHash("sha256").update(caseId + "|" + batch).digest("hex").slice(0, 16); }
@@ -270,23 +274,32 @@ function persistResult(storage: RunStorage, runId: string, result: ExecutionResu
 function fromNormalizedPlan(plan: TestPlan, authority: PlanValidationContext["authority"]): TestPlan { const copy = JSON.parse(JSON.stringify(plan)) as TestPlan; assertValidPlan(copy, { authority }); return normalizePlan(copy, { authority }); }
 function locate(page: Page, locator: LocatorRef) { if (locator.by === "role") return page.getByRole(locator.role as any, locator.name === undefined ? {} : { name: locator.name, exact: locator.exact }); if (locator.by === "label") return page.getByLabel(locator.text); if (locator.by === "test_id") return page.getByTestId(locator.value); if (locator.by === "text") return page.getByText(locator.text, { exact: locator.exact }); if (locator.by === "id") return page.locator("#" + locator.value); return page.locator(locator.value); }
 const MAX_API_REDIRECTS = 5;
+const SENSITIVE_REDIRECT_HEADERS = new Set(["authorization", "cookie", "proxy-authorization"]);
 async function apiRequest(context: BrowserContext, url: string, step: Extract<TestStep, { action: "api_request" }>, network: BrowserNetworkGuard, deadline?: number): Promise<APIResponse> {
   let currentUrl = url;
   let method = step.method;
   let data: unknown = step.body;
+  let headers = step.headers;
   for (let redirect = 0; redirect <= MAX_API_REDIRECTS; redirect += 1) {
     assertDeadline(deadline);
     await network.assertAllowedAsync(currentUrl);
-    const response = await context.request.fetch(currentUrl, { method, headers: step.headers, data, maxRedirects: 0, ...(deadline ? { timeout: remainingMs(deadline) } : {}) });
+    const response = await context.request.fetch(currentUrl, { method, headers, data, maxRedirects: 0, ...(deadline ? { timeout: remainingMs(deadline) } : {}) });
     if (response.status() < 300 || response.status() >= 400) return response;
     const location = response.headers().location;
     if (!location) throw Object.assign(new Error("redirect response has no Location header"), { code: "API_REDIRECT_INVALID" });
     if (redirect === MAX_API_REDIRECTS) throw Object.assign(new Error("API redirect limit exceeded"), { code: "API_REDIRECT_LIMIT" });
-    currentUrl = new URL(location, currentUrl).toString();
+    const nextUrl = new URL(location, currentUrl).toString();
+    if (new URL(nextUrl).origin !== new URL(currentUrl).origin) headers = stripSensitiveRedirectHeaders(headers);
+    currentUrl = nextUrl;
     await network.assertAllowedAsync(currentUrl);
     if (response.status() === 303 || ((response.status() === 301 || response.status() === 302) && method === "POST")) { method = "GET"; data = undefined; }
   }
   throw Object.assign(new Error("API redirect limit exceeded"), { code: "API_REDIRECT_LIMIT" });
+}
+function stripSensitiveRedirectHeaders(headers: Record<string, string> | undefined): Record<string, string> | undefined {
+  if (!headers) return undefined;
+  const filtered = Object.fromEntries(Object.entries(headers).filter(([name]) => !SENSITIVE_REDIRECT_HEADERS.has(name.toLowerCase())));
+  return Object.keys(filtered).length ? filtered : undefined;
 }
 async function responseValue(response: APIResponse): Promise<Record<string, unknown>> { const headers = response.headers(); const text = await response.text(); let body: unknown = text; try { body = text ? JSON.parse(text) : undefined; } catch { /* text body */ } return { status: response.status(), ok: response.ok(), url: response.url(), headers, body }; }
 function getSource(scopes: Record<string, unknown>, source: unknown): Record<string, any> { const value = source && typeof source === "object" ? source : typeof source === "string" && source.startsWith("${") ? resolveInterpolation(source, scopes) : typeof source === "string" && source.startsWith("$") ? lookup(scopes.responses, source.slice(1)) : typeof source === "string" && source.startsWith("responses.") ? lookup(scopes.responses, source.slice("responses.".length)) : lookup(scopes.responses, String(source)); if (!value || typeof value !== "object") throw Object.assign(new Error("response source is undefined: " + String(source)), { code: "PLAN_VARIABLE_UNDEFINED" }); return value as Record<string, any>; }

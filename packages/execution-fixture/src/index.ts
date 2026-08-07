@@ -40,6 +40,7 @@ export async function startDemoTarget(variant: FixtureVariant = "pass"): Promise
     if (url.pathname === "/health") { response.writeHead(200, { "content-type": "application/json" }); response.end(JSON.stringify({ ok: true })); return; }
     if (url.pathname === "/api/redirect") { response.writeHead(302, { Location: "http://169.254.169.254/latest/meta-data/" }); response.end(); return; }
     if (url.pathname === "/api/slow") { await new Promise((resolve) => setTimeout(resolve, 100)); sendJson(response, 200, { ok: true }); return; }
+    if (url.pathname === "/api/slow-long") { await new Promise((resolve) => setTimeout(resolve, 1_000)); sendJson(response, 200, { ok: true }); return; }
     if (url.pathname === "/api/flaky") { flakyCalls += 1; sendJson(response, flakyCalls === 1 ? 500 : 200, { attempt: flakyCalls }); return; }
     if (url.pathname === "/api/auth-check") { sendJson(response, request.headers.authorization === "Bearer abcdef" ? 200 : 401, { authorized: request.headers.authorization === "Bearer abcdef" }); return; }
     if (url.pathname === "/api/items") {
