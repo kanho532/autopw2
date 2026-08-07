@@ -1,0 +1,57 @@
+{
+  "schema_version": "autopw.m9-baseline/1.0",
+  "engine_modes": {
+    "plan_engine": "fixture",
+    "discovery_engine": "legacy"
+  },
+  "fixture_case_ids": [
+    "case_form_normal",
+    "case_required_field",
+    "case_console_health"
+  ],
+  "phase_order": [
+    "TARGET_READY",
+    "SEED_RESOLVED",
+    "DISCOVERED",
+    "COVERAGE_DERIVED",
+    "PLAN_FILLED",
+    "PLAN_FROZEN",
+    "SUITE_GENERATED",
+    "SUITE_FROZEN",
+    "RUNNING",
+    "EXECUTION_FINISHED",
+    "RUNTIME_FINALIZED",
+    "AUDITED",
+    "REPORTED",
+    "GATED"
+  ],
+  "variants": {
+    "pass": { "gate": "pass", "audit_status": "COMPLETE", "case_count": 3 },
+    "fail": { "gate": "fail", "audit_status": "COMPLETE", "case_count": 3 },
+    "incomplete": { "gate": "incomplete", "audit_status": "INCOMPLETE", "case_count": 3 }
+  },
+  "required_run_files": [
+    "execution-results.json",
+    "completion-audit.json"
+  ],
+  "required_artifacts": [
+    "results.json",
+    "report.md",
+    "report.html"
+  ],
+  "fast_projection": {
+    "projected_execution_instances": 4,
+    "batch_count": 1
+  },
+  "acceptance_chain": [
+    "verify:m0",
+    "verify:m1",
+    "verify:m2",
+    "verify:m3",
+    "verify:m4",
+    "verify:m5",
+    "verify:m6",
+    "verify:m7",
+    "verify:v2.1"
+  ]
+}

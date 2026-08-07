@@ -4,7 +4,7 @@ import { OperationRegistry } from "@autopw/operation-registry";
 import type { Logger, RetentionPolicy } from "@autopw/operation-registry";
 import { ControlPlane } from "@autopw/control-plane";
 import { FixtureWorker, WORKER_PROTOCOL_VERSION } from "@autopw/worker";
-import { AuditVerticalSlice } from "@autopw/core";
+import { AuditVerticalSlice, type EngineModes } from "@autopw/core";
 import type { FixtureVariant } from "@autopw/execution-fixture";
 import type { LeasePolicy, ProgressNotification } from "@autopw/worker";
 import type { PlannerProviderOptions } from "@autopw/planner";
@@ -34,6 +34,8 @@ export interface McpServerOptions {
   leasePolicy?: Partial<LeasePolicy>;
   plannerConfig?: Partial<PlannerProviderOptions>;
   production?: boolean;
+  /** Trusted installation/Host setting; never read from MCP tool request or target content. */
+  engineModes?: Partial<EngineModes>;
   logger?: Logger;
   progressSink?: (event: ProgressNotification) => void;
   /** Optional explicit worker version used by deployments during rolling upgrades. */
@@ -54,7 +56,7 @@ export class McpServer {
   readonly progressListeners = new Set<(event: ProgressNotification) => void>();
   readonly minPollMs = 100;
 
-  constructor({ root = process.cwd(), dataRoot, hostContexts, retention, budgets, stepMs, fixtureVariant, leasePolicy, plannerConfig, production, logger, progressSink, workerProtocolVersion = WORKER_PROTOCOL_VERSION }: McpServerOptions = {}) {
+  constructor({ root = process.cwd(), dataRoot, hostContexts, retention, budgets, stepMs, fixtureVariant, leasePolicy, plannerConfig, production, engineModes, logger, progressSink, workerProtocolVersion = WORKER_PROTOCOL_VERSION }: McpServerOptions = {}) {
     if (workerProtocolVersion !== MCP_PROTOCOL_VERSION) {
       const error = Object.assign(new Error(`worker protocol ${workerProtocolVersion} is incompatible with server protocol ${MCP_PROTOCOL_VERSION}`), { code: "PROTOCOL_VERSION_MISMATCH" });
       throw error;
@@ -65,7 +67,7 @@ export class McpServer {
     this.toolsDir = path.join(this.root, "packages", "mcp-contracts", "contracts", "tools");
     this.retention = Object.assign({}, DEFAULT_RETENTION, retention || {});
     this.registry = new OperationRegistry({ dataRoot: this.dataRoot, retention: this.retention, logger });
-    this.auditRuntime = new AuditVerticalSlice({ root: this.root, dataRoot: this.dataRoot, fixtureVariant, plannerConfig, production });
+    this.auditRuntime = new AuditVerticalSlice({ root: this.root, dataRoot: this.dataRoot, fixtureVariant, plannerConfig, production, engineModes });
     if (progressSink) this.progressListeners.add(progressSink);
     this.worker = new FixtureWorker({ registry: this.registry, budgets, stepMs, logger, runtime: this.auditRuntime, leasePolicy, onProgress: (event) => { for (const listener of this.progressListeners) listener(event); } });
     this.cp = new ControlPlane({ schemasDir: this.schemasDir, toolsDir: this.toolsDir, hostContexts, operationRegistry: this.registry, worker: this.worker, logger });

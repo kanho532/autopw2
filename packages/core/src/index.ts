@@ -9,12 +9,24 @@ import { RunStorage, type ArtifactRef } from "@autopw/run-storage";
 import type { RunSnapshot } from "@autopw/operation-registry";
 import { discover } from "@autopw/discovery";
 import { analyzeDiff, deriveCoverage, digest, type DerivationResult, type DiffResult, type Tier } from "@autopw/derivation";
-import { DeterministicFixturePlanner, LocalStructuredPlannerProvider, PlanTemplateCache, plannerInputDigest, validatePlannerOutput, type CandidateCatalog, type PlannerInput, type PlannerOutput, type PlannerProviderOptions, type PlanTemplate } from "@autopw/planner";
+import { DeterministicFixturePlanner, LocalStructuredPlannerProvider, PlanTemplateCache, planExecutionInstances, plannerInputDigest, validatePlannerOutput, type CandidateCatalog, type PlannerInput, type PlannerOutput, type PlannerProviderOptions, type PlanTemplate } from "@autopw/planner";
 import { redactSecrets } from "@autopw/security";
 
 export interface VerticalRun extends RunSnapshot { phase: string; }
 export interface VerticalResult { gate: "incomplete" | "infra" | "fail" | "unstable" | "pass"; audit_status: "COMPLETE" | "INCOMPLETE"; results_ref: ArtifactRef; report_ref: ArtifactRef; gate_summary: Record<string, unknown>; cases: Record<string, unknown>[]; evidence_refs: ArtifactRef[]; }
 export interface CoveragePreview { discovery: Record<string, unknown>; derivation: DerivationResult; diff: DiffResult; result_ref?: ArtifactRef; summary: Record<string, unknown>; }
+export type PlanEngineMode = "fixture" | "declarative";
+export type DiscoveryEngineMode = "legacy" | "structured";
+export interface EngineModes { plan_engine: PlanEngineMode; discovery_engine: DiscoveryEngineMode; }
+export const DEFAULT_ENGINE_MODES: Readonly<EngineModes> = Object.freeze({ plan_engine: "fixture", discovery_engine: "legacy" });
+
+export function resolveEngineModes(input?: Partial<EngineModes>): EngineModes {
+  const plan_engine = input?.plan_engine ?? DEFAULT_ENGINE_MODES.plan_engine;
+  const discovery_engine = input?.discovery_engine ?? DEFAULT_ENGINE_MODES.discovery_engine;
+  if (plan_engine !== "fixture" && plan_engine !== "declarative") throw Object.assign(new Error("invalid plan engine mode"), { code: "INVALID_PLAN_ENGINE_MODE" });
+  if (discovery_engine !== "legacy" && discovery_engine !== "structured") throw Object.assign(new Error("invalid discovery engine mode"), { code: "INVALID_DISCOVERY_ENGINE_MODE" });
+  return { plan_engine, discovery_engine };
+}
 interface PlannerArtifacts { input: PlannerInput; output: PlannerOutput; template: PlanTemplate; audit: Record<string, unknown>; }
 type PhaseCallback = (phase: string, progress: number, nextAction: string) => void;
 
@@ -25,14 +37,16 @@ export class AuditVerticalSlice {
   readonly fixtureVariant?: FixtureVariant;
   readonly plannerConfig: Partial<PlannerProviderOptions>;
   readonly production: boolean;
+  readonly engineModes: EngineModes;
   readonly preflightCache = new Map<string, { expires_at: number; value: CoveragePreview }>();
 
-  constructor({ root, dataRoot, fixtureVariant, plannerConfig, production }: { root: string; dataRoot: string; fixtureVariant?: FixtureVariant; plannerConfig?: Partial<PlannerProviderOptions>; production?: boolean }) {
+  constructor({ root, dataRoot, fixtureVariant, plannerConfig, production, engineModes }: { root: string; dataRoot: string; fixtureVariant?: FixtureVariant; plannerConfig?: Partial<PlannerProviderOptions>; production?: boolean; engineModes?: Partial<EngineModes> }) {
     this.root = path.resolve(root);
     this.storage = new RunStorage(dataRoot);
     this.fixtureVariant = fixtureVariant;
     this.plannerConfig = plannerConfig || {};
     this.production = Boolean(production);
+    this.engineModes = resolveEngineModes(engineModes);
   }
 
   async execute({ run, request, onPhase }: { run: VerticalRun; request: Record<string, unknown>; onPhase: PhaseCallback }): Promise<VerticalResult> {
@@ -103,6 +117,21 @@ export class AuditVerticalSlice {
     const target = await startDemoTarget(this.variant(this.fixtureVariant));
     try {
       const value = await this.deriveCoverage({ request, targetUrl: target.baseUrl });
+      // M9.0 freezes the Fixture compatibility path. Discovery may expose
+      // additional facts, but the preflight budget must describe the plan
+      // that the current Fixture runner will actually execute.
+      if (this.engineModes.plan_engine === "fixture") {
+        const tier = String(request.tier || request.base_tier || "fast") as Tier;
+        const matrixBudget = isRecord(request.matrix_budget) ? Number(request.matrix_budget.max_execution_instances || 0) : 0;
+        value.derivation.projection = planExecutionInstances(
+          FIXTURE_PLAN.cases.map((item) => ({ case_id: item.case_id })),
+          tier,
+          { ...matrixFromRequest(request), profile_max_execution_instances: matrixBudget || undefined, host_max_execution_instances: Number(request.__host_max_execution_instances || 100) }
+        );
+        value.summary.projected_execution_instances = value.derivation.projection.projected_execution_instances;
+        value.summary.projection = value.derivation.projection.dimensions;
+        value.summary.narrowing_suggestions = value.derivation.projection.narrowing_suggestions;
+      }
       this.preflightCache.set(key, { expires_at: Date.now() + 30_000, value });
       return value;
     }

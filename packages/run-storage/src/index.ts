@@ -1,8 +1,13 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
 export interface ArtifactRef { handle: string; kind: string; size_bytes?: number; }
+export interface ArtifactIndexEntry { relative_path: string; kind: string; size_bytes: number; sha256: string; }
+export interface ArtifactIndex { schema_version: "1.0"; artifacts: Record<string, ArtifactIndexEntry>; }
 export interface RunEvent { seq: number; kind: string; phase?: string; at: string; detail: Record<string, unknown>; }
+
+const SAFE_ID = /^[A-Za-z0-9_.:-]+$/;
 
 export class RunStorage {
   readonly dataRoot: string;
@@ -15,9 +20,37 @@ export class RunStorage {
   }
 
   runDir(runId: string): string {
+    this.assertSafeSegment(runId, "run_id");
     const dir = path.join(this.runsRoot, runId);
     fs.mkdirSync(path.join(dir, "artifacts"), { recursive: true });
     return dir;
+  }
+
+  caseDir(runId: string, caseId: string): string {
+    this.assertSafeSegment(caseId, "case_id");
+    const dir = this.safePath(runId, path.join("cases", this.caseStorageSegment(caseId)));
+    fs.mkdirSync(path.join(dir, "artifacts"), { recursive: true });
+    return dir;
+  }
+
+  writeCaseJson(runId: string, caseId: string, name: string, value: unknown): void {
+    this.assertSafeFileName(name, "case file name");
+    this.caseDir(runId, caseId);
+    this.writeFile(runId, path.join("cases", this.caseStorageSegment(caseId), name), Buffer.from(JSON.stringify(value, null, 2) + "\n", "utf8"));
+  }
+
+  writeCaseArtifact(runId: string, caseId: string, name: string, kind: string, data: Buffer | string): ArtifactRef {
+    this.assertSafeFileName(name, "artifact file name");
+    this.caseDir(runId, caseId);
+    const relativePath = this.toPortablePath(path.join("cases", this.caseStorageSegment(caseId), "artifacts", name));
+    const bytes = Buffer.isBuffer(data) ? data : Buffer.from(data);
+    this.writeFile(runId, relativePath, bytes);
+    const sha256 = crypto.createHash("sha256").update(bytes).digest("hex");
+    const handle = "art_" + crypto.createHash("sha256").update(runId + "\0" + relativePath + "\0" + kind).update(bytes).digest("hex");
+    const index = this.readArtifactIndex(runId) || { schema_version: "1.0", artifacts: {} };
+    index.artifacts[handle] = { relative_path: relativePath, kind, size_bytes: bytes.length, sha256 };
+    this.writeJson(runId, "artifact-index.json", index);
+    return { handle, kind, size_bytes: bytes.length };
   }
 
   writeJson(runId: string, name: string, value: unknown): void {
@@ -106,7 +139,24 @@ export class RunStorage {
   artifactPath(runId: string, name: string): string { return this.safePath(runId, path.join("artifacts", name)); }
   readArtifact(runId: string, name: string): Buffer { return fs.readFileSync(this.safePath(runId, path.join("artifacts", name))); }
 
+  artifactIndexPath(runId: string): string { return this.safePath(runId, "artifact-index.json"); }
+
+  readArtifactIndex(runId: string): ArtifactIndex | undefined {
+    const file = this.artifactIndexPath(runId);
+    if (!fs.existsSync(file)) return undefined;
+    return JSON.parse(fs.readFileSync(file, "utf8")) as ArtifactIndex;
+  }
+
   readArtifactRef(runId: string, ref: ArtifactRef): Buffer {
+    if (ref && typeof ref.handle === "string" && /^art_[a-f0-9]{64}$/.test(ref.handle)) {
+      const entry = this.readArtifactIndex(runId)?.artifacts[ref.handle];
+      if (!entry || (ref.kind && entry.kind !== ref.kind)) throw Object.assign(new Error("artifact reference is invalid or has the wrong kind"), { code: "ARTIFACT_HANDLE_INVALID" });
+      const target = this.safePath(runId, entry.relative_path);
+      if (!fs.existsSync(target)) throw Object.assign(new Error("artifact has expired or is unavailable"), { code: "RESULT_EXPIRED" });
+      const bytes = fs.readFileSync(target);
+      if (bytes.length !== entry.size_bytes || crypto.createHash("sha256").update(bytes).digest("hex") !== entry.sha256) throw Object.assign(new Error("artifact integrity check failed"), { code: "ARTIFACT_CORRUPT" });
+      return bytes;
+    }
     const prefix = "art_" + runId.slice(4, 12) + "_";
     if (!ref || typeof ref.handle !== "string" || !ref.handle.startsWith(prefix) || !/^art_[A-Za-z0-9_.-]+$/.test(ref.handle)) {
       throw Object.assign(new Error("artifact reference is not bound to this run"), { code: "ARTIFACT_HANDLE_INVALID" });
@@ -131,6 +181,32 @@ export class RunStorage {
     const target = path.resolve(base, name);
     const relative = path.relative(base, target);
     if (relative.startsWith(".." + path.sep) || path.isAbsolute(relative)) throw new Error("artifact path escapes run directory");
+    this.assertRealpathWithin(base, target);
     return target;
   }
+
+  private assertSafeSegment(value: string, label: string): void {
+    if (typeof value !== "string" || value === "." || value === ".." || !SAFE_ID.test(value)) throw Object.assign(new Error(label + " is invalid"), { code: "SAFE_PATH_INVALID" });
+  }
+
+  private assertSafeFileName(value: string, label: string): void {
+    if (typeof value !== "string" || !value || value === "." || value === ".." || path.basename(value) !== value || value.includes("/") || value.includes("\\")) throw Object.assign(new Error(label + " is invalid"), { code: "SAFE_PATH_INVALID" });
+  }
+
+  private assertRealpathWithin(base: string, target: string): void {
+    const realBase = fs.realpathSync(base);
+    let existing = target;
+    while (!fs.existsSync(existing)) {
+      const parent = path.dirname(existing);
+      if (parent === existing) break;
+      existing = parent;
+    }
+    const realExisting = fs.realpathSync(existing);
+    const candidate = path.resolve(realExisting, path.relative(existing, target));
+    const relative = path.relative(realBase, candidate);
+    if (relative.startsWith(".." + path.sep) || path.isAbsolute(relative)) throw Object.assign(new Error("artifact path escapes run directory"), { code: "WORKSPACE_ESCAPE" });
+  }
+
+  private toPortablePath(value: string): string { return value.split(path.sep).join("/"); }
+  private caseStorageSegment(caseId: string): string { return caseId.replaceAll(":", "%3A"); }
 }

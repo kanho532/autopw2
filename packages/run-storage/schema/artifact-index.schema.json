@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopw.dev/schemas/run-storage/artifact-index/1.0",
+  "title": "AutoPW Artifact Index",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "artifacts"],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["relative_path", "kind", "size_bytes", "sha256"],
+        "properties": {
+          "relative_path": { "type": "string", "pattern": "^cases/[A-Za-z0-9_.:%-]+/artifacts/[^/]+$" },
+          "kind": { "type": "string", "minLength": 1 },
+          "size_bytes": { "type": "integer", "minimum": 0 },
+          "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+        }
+      }
+    }
+  }
+}

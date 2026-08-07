@@ -1,0 +1,10 @@
+{
+  "name": "@autopw/test-plan",
+  "version": "2.2.0-alpha.1",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "description": "Declarative AutoPW TestPlan contract and compatibility adapter."
+}

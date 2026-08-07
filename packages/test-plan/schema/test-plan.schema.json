@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopw.dev/schemas/test-plan/1.0/test-plan.schema.json",
+  "title": "AutoPW Declarative TestPlan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["plan_schema", "plan_id", "generated_at", "origin", "coverage_eligible", "cases"],
+  "properties": {
+    "plan_schema": { "const": "autopw.test-plan/1.0" },
+    "plan_id": { "type": "string", "pattern": "^[A-Za-z0-9_.:-]+$" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "origin": { "type": "object", "additionalProperties": false, "required": ["type"], "properties": { "type": { "enum": ["generated", "manual", "migrated", "bootstrap"] }, "source_ref": { "type": "string" }, "generator_version": { "type": "string" }, "discovery_digest": { "type": "string" }, "requirement_digest": { "type": "string" } } },
+    "coverage_eligible": { "type": "boolean" },
+    "target": { "type": "object", "additionalProperties": false, "properties": { "base_path": { "type": "string" } } },
+    "fixtures": { "type": "object" },
+    "cases": { "type": "array", "items": { "$ref": "#/$defs/case" }, "minItems": 1 }
+  },
+  "$defs": {
+    "locator": { "type": "object", "oneOf": [
+      { "required": ["by", "role"], "properties": { "by": { "const": "role" }, "role": { "type": "string" }, "name": { "type": "string" }, "exact": { "type": "boolean" } } },
+      { "required": ["by", "text"], "properties": { "by": { "enum": ["label", "text"] }, "text": { "type": "string" }, "exact": { "type": "boolean" } } },
+      { "required": ["by", "value"], "properties": { "by": { "enum": ["test_id", "id"] }, "value": { "type": "string" } } },
+      { "required": ["by", "value", "authority"], "properties": { "by": { "const": "css" }, "value": { "type": "string" }, "authority": { "const": "trusted_manual" } } }
+    ] },
+    "step": { "type": "object", "required": ["action"], "properties": { "action": { "type": "string" } }, "additionalProperties": true },
+    "case": { "type": "object", "additionalProperties": false, "required": ["case_id", "title", "feature_id", "requirement_refs", "scenario", "priority", "effective_tier", "kind", "risk", "confidence", "execution_policy", "steps"], "properties": {
+      "case_id": { "type": "string", "pattern": "^[A-Za-z0-9_.:-]+$" }, "title": { "type": "string" }, "feature_id": { "type": "string" }, "requirement_refs": { "type": "array", "items": { "type": "string" } }, "scenario": { "type": "string" }, "priority": { "enum": ["P0", "P1", "P2"] }, "effective_tier": { "enum": ["smoke", "fast", "full"] }, "kind": { "enum": ["ui", "api", "hybrid"] }, "risk": { "enum": ["read_only", "mutating", "destructive"] }, "confidence": { "type": "number", "minimum": 0, "maximum": 1 }, "execution_policy": { "type": "object" }, "setup": { "type": "array", "items": { "$ref": "#/$defs/step" } }, "steps": { "type": "array", "items": { "$ref": "#/$defs/step" }, "minItems": 1 }, "cleanup": { "type": "array", "items": { "$ref": "#/$defs/step" } }
+    } }
+  }
+}
