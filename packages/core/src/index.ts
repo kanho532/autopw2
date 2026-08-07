@@ -8,7 +8,7 @@ import { writeReport } from "@autopw/reporting";
 import { RunStorage, type ArtifactRef } from "@autopw/run-storage";
 import type { RunSnapshot } from "@autopw/operation-registry";
 import { discover } from "@autopw/discovery";
-import { analyzeDiff, deriveCoverage, digest, type DerivationResult, type DiffResult, type Tier, type TestRequirement } from "@autopw/derivation";
+import { analyzeDiff, deriveCoverage, digest, reconcileRequirementCoverage, type DerivationResult, type DiffResult, type Tier, type TestRequirement } from "@autopw/derivation";
 import { buildCandidateCatalog, buildRequirementPlannerInput, DeterministicFixturePlanner, LocalStructuredPlannerProvider, PlanTemplateCache, planExecutionInstances, plannerInputDigest, validatePlannerOutput, type CandidateCatalog, type PlannerInput, type PlannerOutput, type PlannerProviderOptions, type PlanTemplate } from "@autopw/planner";
 import { redactSecrets } from "@autopw/security";
 
@@ -87,6 +87,7 @@ export class AuditVerticalSlice {
       const execution = this.engineModes.plan_engine === "declarative"
         ? await this.runner.run({ runId: run.run_id, baseUrl: target.baseUrl, allowedOrigins: this.resolvedAllowedOrigins(request), plan: compiled.plan as import("@autopw/test-plan").TestPlan, matrix: matrixFromRequest(request), tier: String(request.tier || request.base_tier || "fast") as "smoke" | "fast" | "full", storage: this.storage, planAuthority: "generated" })
         : await this.runner.run({ runId: run.run_id, baseUrl: target.baseUrl, allowedOrigins: this.resolvedAllowedOrigins(request), plan: compiled.plan as import("@autopw/execution-fixture").FixturePlan, variant, matrix: matrixFromRequest(request), tier: String(request.tier || request.base_tier || "fast") as "smoke" | "fast" | "full", storage: this.storage });
+      if (this.engineModes.plan_engine === "declarative") this.storage.writeJson(run.run_id, "requirement-coverage.json", reconcileRequirementCoverage(planner.requirements, compiled.mappingAudit.requirement_case_map || {}, execution.results));
       commitPhase("EXECUTION_FINISHED", 78, "poll get_run_status");
       const audit = auditExecution(compiled.plan.cases.map((item) => item.case_id), execution.results, execution.manifest);
       this.storage.writeJson(run.run_id, "completion-audit.json", audit);

@@ -20,7 +20,7 @@ export function buildCandidateCatalog({ discovery, requirements, manualOverlay =
   for (const requirement of [...requirements].sort((a, b) => a.requirement_id.localeCompare(b.requirement_id))) {
     const caseId = requirementCaseId(requirement.requirement_id);
     const related = facts.filter((fact) => typeof fact.fact_id === "string" && requirement.source_refs.includes(String(fact.fact_id)));
-    const endpointFact = related.find((fact) => fact.fact_type === "endpoint") || facts.find((fact) => fact.fact_type === "endpoint" && fact.feature_id === requirement.feature_id);
+    const endpointFact = selectEndpointFact(requirement, related.filter((fact) => fact.fact_type === "endpoint")) || facts.find((fact) => fact.fact_type === "endpoint" && fact.feature_id === requirement.feature_id);
     const controlFact = related.find((fact) => fact.fact_type === "control") || facts.find((fact) => fact.fact_type === "control" && fact.feature_id === requirement.feature_id);
     const route = String(endpointFact?.route || controlFact?.route || "/");
     const routeId = "route_" + safeId(requirement.requirement_id);
@@ -65,6 +65,25 @@ function addLocator(catalog: CandidateCatalog, fact: Record<string, unknown>, re
   const id = "locator_" + safeId(requirement.requirement_id) + "_" + safeId(String(fact.fact_id || raw));
   if (!catalog.locators[id]) catalog.locators[id] = candidate({ id, kind: "locator", requirement, caseId, route_id: routeId, locator_ref: { by: "id", value: raw.slice(1) }, source: "discovery" });
   return catalog.locators[id];
+}
+
+function selectEndpointFact(requirement: PlannerRequirementLike, candidates: Array<Record<string, unknown>>): Record<string, unknown> | undefined {
+  const matches = (method: string, operation?: string, detail = false): Record<string, unknown> | undefined => candidates.find((fact) => String(fact.method || "").toUpperCase() === method && (operation === undefined || fact.operation === operation) && (!detail || String(fact.path_template || "").includes(":id")));
+  switch (requirement.intent) {
+    case "completed_state":
+    case "update_persists": return matches("PATCH", undefined, true) || matches("PUT", undefined, true);
+    case "delete_removes_entity": return matches("DELETE", undefined, true);
+    case "route_detail":
+    case "not_found_semantics": return matches("GET", undefined, true);
+    case "create_succeeds":
+    case "required_field_rejected":
+    case "enum_validation": return matches("POST", undefined, false);
+    case "search_filters_results": return matches("GET", "search") || matches("GET");
+    case "summary_is_consistent": return matches("GET", "summary");
+    case "count_consistent": return matches("GET", "count");
+    case "cors_allows_operation": return matches("OPTIONS", "cors");
+    default: return candidates[0];
+  }
 }
 
 function createActionStep(requirement: PlannerRequirementLike, endpoint: PlannerCandidate | undefined, route: string): Record<string, unknown> {
