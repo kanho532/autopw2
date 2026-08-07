@@ -10,9 +10,9 @@ export interface ExecutionBatch { batch_id: string; tier: Tier; browser: string;
 export interface ExecutionInstance { execution_id: string; case_id: string; batch_id: string; status: "NOT_RUN"; }
 export interface ExecutionProjection { projected_execution_instances: number; dimensions: { browsers: Record<string, number>; viewports: Record<string, number>; locales: Record<string, number>; auth_scopes: Record<string, number> }; batches: ExecutionBatch[]; instances: ExecutionInstance[]; effective_budget: number; narrowing_suggestions: string[]; }
 
-export interface PlannerCandidate { id: string; kind: "action" | "route" | "locator" | "input" | "expectation" | "endpoint"; case_id: string; scenario: string; route_id?: string; locator_id?: string; input_id?: string; action?: string; origin?: string; strength?: "weak" | "normal" | "strong"; source?: "fixture" | "discovery"; }
-export interface CandidateCatalog { routes: Record<string, PlannerCandidate>; actions: Record<string, PlannerCandidate>; locators: Record<string, PlannerCandidate>; inputs: Record<string, PlannerCandidate>; expectations: Record<string, PlannerCandidate>; endpoints: Record<string, PlannerCandidate>; }
-export interface PlannerSkeleton { case_id: string; feature_id?: string; scenario: string; route_id?: string; action_ids?: string[]; expectation_ids?: string[]; status?: string; }
+export interface PlannerCandidate { id: string; kind: "action" | "route" | "locator" | "input" | "expectation" | "endpoint"; case_id: string; requirement_id?: string; scenario: string; route_id?: string; locator_id?: string; input_id?: string; endpoint_id?: string; action?: string; method?: string; path?: string; body?: unknown; step?: Record<string, unknown>; locator_ref?: Record<string, unknown>; origin?: string; strength?: "weak" | "normal" | "strong"; source?: "fixture" | "discovery" | "rule" | "manual"; confidence?: number; risk?: "read_only" | "mutating" | "destructive"; }
+export interface CandidateCatalog { routes: Record<string, PlannerCandidate>; actions: Record<string, PlannerCandidate>; locators: Record<string, PlannerCandidate>; inputs: Record<string, PlannerCandidate>; expectations: Record<string, PlannerCandidate>; endpoints: Record<string, PlannerCandidate>; fixtures?: Record<string, PlannerCandidate>; extractors?: Record<string, PlannerCandidate>; cleanup_actions?: Record<string, PlannerCandidate>; }
+export interface PlannerSkeleton { case_id: string; requirement_id?: string; feature_id?: string; scenario: string; priority?: "P0" | "P1" | "P2"; route_id?: string; action_ids?: string[]; expectation_ids?: string[]; status?: string; }
 export interface PlannerObservation { observationId: string; untrusted: true; kind: string; value: string; }
 export interface PlannerInput { schemaVersion: "2.1"; skeletons: PlannerSkeleton[]; candidates: CandidateCatalog; contractRefs: { contractId: string; version?: string; ref: string }[]; untrustedObservations: PlannerObservation[]; }
 export interface ActionSelection { actionTemplateId: string; routeId?: string; locatorId?: string; inputId?: string; endpointId?: string; }
@@ -30,14 +30,14 @@ export class DeterministicFixturePlanner implements PlannerProvider {
   readonly provider_id: string = "fixture-deterministic";
   readonly provider_version: string = "1";
   async fill(input: PlannerInput, _options: PlannerProviderOptions): Promise<PlannerOutput> {
-    const selections: CaseSelection[] = input.skeletons.filter((item) => item.status !== "BLOCKED" && item.status !== "NOT_APPLICABLE").map((item) => {
+    const selections: CaseSelection[] = input.skeletons.filter((item) => item.status !== "BLOCKED" && item.status !== "NOT_APPLICABLE" && item.status !== "TIER_SKIPPED").map((item) => {
       const actionIds = item.action_ids || Object.values(input.candidates.actions).filter((candidate) => candidate.case_id === item.case_id).map((candidate) => candidate.id).sort();
       const expectationIds = item.expectation_ids || Object.values(input.candidates.expectations).filter((candidate) => candidate.case_id === item.case_id).map((candidate) => candidate.id).sort();
       return {
         caseId: item.case_id,
         actionSelections: actionIds.map((actionTemplateId) => {
           const action = input.candidates.actions[actionTemplateId];
-          return { actionTemplateId, routeId: action?.route_id, locatorId: action?.locator_id, inputId: action?.input_id };
+          return { actionTemplateId, routeId: action?.route_id, locatorId: action?.locator_id, inputId: action?.input_id, endpointId: action?.endpoint_id };
         }),
         expectationIds,
         description: "deterministic fixture selection"
@@ -83,7 +83,7 @@ export function validatePlannerOutput(input: PlannerInput, output: PlannerOutput
         seenLocators.add(action.locatorId);
       }
       if (action.inputId && (!input.candidates.inputs[action.inputId] || input.candidates.inputs[action.inputId].case_id !== selection.caseId || (candidate?.input_id && candidate.input_id !== action.inputId))) errors.push(selection.caseId + ": invalid input source");
-      if (action.endpointId && (!input.candidates.endpoints[action.endpointId] || input.candidates.endpoints[action.endpointId].case_id !== selection.caseId)) errors.push(selection.caseId + ": invalid endpoint");
+      if (action.endpointId && (!input.candidates.endpoints[action.endpointId] || input.candidates.endpoints[action.endpointId].case_id !== selection.caseId || (candidate?.endpoint_id && candidate.endpoint_id !== action.endpointId))) errors.push(selection.caseId + ": invalid endpoint");
       if (production && candidate?.action && /(?:submit|delete|update|create|send|pay)/i.test(candidate.action)) errors.push(selection.caseId + ": mutating action forbidden in production");
     }
     for (const expectationId of selection.expectationIds || []) {
@@ -96,6 +96,7 @@ export function validatePlannerOutput(input: PlannerInput, output: PlannerOutput
     if (skeleton.expectation_ids) { const selectedExpectations = selection.expectationIds || []; if (new Set(selectedExpectations).size !== new Set(skeleton.expectation_ids).size || skeleton.expectation_ids.some((id) => !selectedExpectations.includes(id))) errors.push(selection.caseId + ": coverage binding does not include all expectations"); }
     if (skeleton.scenario === "normal" && !(selection.expectationIds || []).some((id) => input.candidates.expectations[id]?.strength === "strong")) errors.push(selection.caseId + ": normal scenario lacks strong result assertion");
   }
+  for (const skeleton of input.skeletons) if (skeleton.priority === "P0" && skeleton.status !== "BLOCKED" && skeleton.status !== "NOT_APPLICABLE" && skeleton.status !== "TIER_SKIPPED" && !seenCases.has(skeleton.case_id)) errors.push(skeleton.case_id + ": required P0 requirement was not planned");
   for (const observation of input.untrustedObservations || []) {
     if (observation.untrusted !== true) errors.push("observations must be marked untrusted");
   }
@@ -104,6 +105,8 @@ export function validatePlannerOutput(input: PlannerInput, output: PlannerOutput
 
 export function plannerInputDigest(input: PlannerInput): string { return shortDigest(stableJson(input)); }
 export function plannerOutputDigest(output: PlannerOutput): string { return shortDigest(stableJson(output)); }
+
+export { buildCandidateCatalog, buildRequirementPlannerInput, requirementCaseId as plannerRequirementCaseId, type PlannerRequirementLike, type DiscoveryLike } from "./catalog-builder.js";
 
 export class PlanTemplateCache {
   readonly root: string;

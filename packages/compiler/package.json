@@ -6,6 +6,6 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
-  "dependencies": { "@autopw/execution-fixture": "2.1.0-rc5.mcp-first" },
+  "dependencies": { "@autopw/execution-fixture": "2.1.0-rc5.mcp-first", "@autopw/planner": "2.1.0-rc5.mcp-first", "@autopw/test-plan": "2.1.0-rc5.mcp-first" },
   "description": "AutoPW compiler (Phase 0 stub — not implemented in M0)."
 }

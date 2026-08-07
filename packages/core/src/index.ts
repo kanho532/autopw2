@@ -1,6 +1,6 @@
 import path from "node:path";
 import { auditExecution } from "@autopw/audit";
-import { compileFixturePlan, suiteDigest } from "@autopw/compiler";
+import { compileFixturePlan, compileTestPlan, suiteDigest } from "@autopw/compiler";
 import { FIXTURE_PLAN, startDemoTarget, type FixtureVariant } from "@autopw/execution-fixture";
 import { PlaywrightFixtureRunner, type ExecutionMatrix } from "@autopw/execution";
 import { evaluateGate } from "@autopw/gate";
@@ -8,8 +8,8 @@ import { writeReport } from "@autopw/reporting";
 import { RunStorage, type ArtifactRef } from "@autopw/run-storage";
 import type { RunSnapshot } from "@autopw/operation-registry";
 import { discover } from "@autopw/discovery";
-import { analyzeDiff, deriveCoverage, digest, type DerivationResult, type DiffResult, type Tier } from "@autopw/derivation";
-import { DeterministicFixturePlanner, LocalStructuredPlannerProvider, PlanTemplateCache, planExecutionInstances, plannerInputDigest, validatePlannerOutput, type CandidateCatalog, type PlannerInput, type PlannerOutput, type PlannerProviderOptions, type PlanTemplate } from "@autopw/planner";
+import { analyzeDiff, deriveCoverage, digest, type DerivationResult, type DiffResult, type Tier, type TestRequirement } from "@autopw/derivation";
+import { buildCandidateCatalog, buildRequirementPlannerInput, DeterministicFixturePlanner, LocalStructuredPlannerProvider, PlanTemplateCache, planExecutionInstances, plannerInputDigest, validatePlannerOutput, type CandidateCatalog, type PlannerInput, type PlannerOutput, type PlannerProviderOptions, type PlanTemplate } from "@autopw/planner";
 import { redactSecrets } from "@autopw/security";
 
 export interface VerticalRun extends RunSnapshot { phase: string; }
@@ -23,13 +23,11 @@ export const DEFAULT_ENGINE_MODES: Readonly<EngineModes> = Object.freeze({ plan_
 export function resolveEngineModes(input?: Partial<EngineModes>): EngineModes {
   const plan_engine = input?.plan_engine ?? DEFAULT_ENGINE_MODES.plan_engine;
   const discovery_engine = input?.discovery_engine ?? DEFAULT_ENGINE_MODES.discovery_engine;
-  if (plan_engine === "declarative") throw Object.assign(new Error("declarative plan engine is not implemented in M9.0-M9.2"), { code: "PLAN_ENGINE_NOT_IMPLEMENTED" });
-  if (plan_engine !== "fixture") throw Object.assign(new Error("invalid plan engine mode"), { code: "INVALID_PLAN_ENGINE_MODE" });
-  if (discovery_engine === "structured") throw Object.assign(new Error("structured discovery engine is not implemented in M9.0-M9.2"), { code: "DISCOVERY_ENGINE_NOT_IMPLEMENTED" });
-  if (discovery_engine !== "legacy") throw Object.assign(new Error("invalid discovery engine mode"), { code: "INVALID_DISCOVERY_ENGINE_MODE" });
+  if (plan_engine !== "fixture" && plan_engine !== "declarative") throw Object.assign(new Error("invalid plan engine mode"), { code: "INVALID_PLAN_ENGINE_MODE" });
+  if (discovery_engine !== "legacy" && discovery_engine !== "structured") throw Object.assign(new Error("invalid discovery engine mode"), { code: "INVALID_DISCOVERY_ENGINE_MODE" });
   return { plan_engine, discovery_engine };
 }
-interface PlannerArtifacts { input: PlannerInput; output: PlannerOutput; template: PlanTemplate; audit: Record<string, unknown>; }
+interface PlannerArtifacts { input: PlannerInput; output: PlannerOutput; template: PlanTemplate; audit: Record<string, unknown>; requirements: TestRequirement[]; candidateCatalog?: CandidateCatalog; }
 type PhaseCallback = (phase: string, progress: number, nextAction: string) => void;
 
 export class AuditVerticalSlice {
@@ -77,7 +75,7 @@ export class AuditVerticalSlice {
       this.storage.writeJson(run.run_id, "plan-template.json", { cache_key: planner.template.cache_key, selections_digest: planner.template.selections_digest, planner_provider_id: planner.template.planner_provider_id, model_id: planner.template.model_id });
       this.storage.writeJson(run.run_id, "planner-audit.json", planner.audit);
       commitPhase("PLAN_FILLED", 36, "poll get_run_status");
-      const compiled = compileFixturePlan(materializeFixturePlan(FIXTURE_PLAN, planner.output));
+      const compiled = this.engineModes.plan_engine === "declarative" ? compileTestPlan({ requirements: planner.requirements, candidateCatalog: planner.candidateCatalog || emptyCatalog(), plannerOutput: planner.output }) : compileFixturePlan(materializeFixturePlan(FIXTURE_PLAN, planner.output));
       this.storage.writeJson(run.run_id, "plan.json", compiled.plan);
       this.storage.writeJson(run.run_id, "mapping-audit.json", compiled.mappingAudit);
       commitPhase("PLAN_FROZEN", 42, "poll get_run_status");
@@ -86,7 +84,9 @@ export class AuditVerticalSlice {
       this.storage.writeJson(run.run_id, "suite-manifest.json", { digest: suiteDigest(compiled.source), forbidden_imports: false });
       commitPhase("SUITE_FROZEN", 54, "poll get_run_status");
       commitPhase("RUNNING", 60, "poll get_run_status");
-      const execution = await this.runner.run({ runId: run.run_id, baseUrl: target.baseUrl, allowedOrigins: this.resolvedAllowedOrigins(request), plan: compiled.plan, variant, matrix: matrixFromRequest(request), tier: String(request.tier || request.base_tier || "fast") as "smoke" | "fast" | "full", storage: this.storage });
+      const execution = this.engineModes.plan_engine === "declarative"
+        ? await this.runner.run({ runId: run.run_id, baseUrl: target.baseUrl, allowedOrigins: this.resolvedAllowedOrigins(request), plan: compiled.plan as import("@autopw/test-plan").TestPlan, matrix: matrixFromRequest(request), tier: String(request.tier || request.base_tier || "fast") as "smoke" | "fast" | "full", storage: this.storage, planAuthority: "generated" })
+        : await this.runner.run({ runId: run.run_id, baseUrl: target.baseUrl, allowedOrigins: this.resolvedAllowedOrigins(request), plan: compiled.plan as import("@autopw/execution-fixture").FixturePlan, variant, matrix: matrixFromRequest(request), tier: String(request.tier || request.base_tier || "fast") as "smoke" | "fast" | "full", storage: this.storage });
       commitPhase("EXECUTION_FINISHED", 78, "poll get_run_status");
       const audit = auditExecution(compiled.plan.cases.map((item) => item.case_id), execution.results, execution.manifest);
       this.storage.writeJson(run.run_id, "completion-audit.json", audit);
@@ -119,17 +119,23 @@ export class AuditVerticalSlice {
     const target = await startDemoTarget(this.variant(this.fixtureVariant));
     try {
       const value = await this.deriveCoverage({ request, targetUrl: target.baseUrl });
+      const tier = String(request.tier || request.base_tier || "fast") as Tier;
+      const matrixBudget = isRecord(request.matrix_budget) ? Number(request.matrix_budget.max_execution_instances || 0) : 0;
       // M9.0 freezes the Fixture compatibility path. Discovery may expose
       // additional facts, but the preflight budget must describe the plan
       // that the current Fixture runner will actually execute.
       if (this.engineModes.plan_engine === "fixture") {
-        const tier = String(request.tier || request.base_tier || "fast") as Tier;
-        const matrixBudget = isRecord(request.matrix_budget) ? Number(request.matrix_budget.max_execution_instances || 0) : 0;
         value.derivation.projection = planExecutionInstances(
           FIXTURE_PLAN.cases.map((item) => ({ case_id: item.case_id })),
           tier,
           { ...matrixFromRequest(request), profile_max_execution_instances: matrixBudget || undefined, host_max_execution_instances: Number(request.__host_max_execution_instances || 100) }
         );
+        value.summary.projected_execution_instances = value.derivation.projection.projected_execution_instances;
+        value.summary.projection = value.derivation.projection.dimensions;
+        value.summary.narrowing_suggestions = value.derivation.projection.narrowing_suggestions;
+      } else {
+        const requirements = requirementsFromCoverage(value);
+        value.derivation.projection = planExecutionInstances(requirements.filter((item) => item.status !== "BLOCKED" && item.status !== "TIER_SKIPPED" && item.status !== "NOT_APPLICABLE").map((item) => ({ case_id: "case_" + item.requirement_id })), tier, { ...matrixFromRequest(request), profile_max_execution_instances: matrixBudget || undefined, host_max_execution_instances: Number(request.__host_max_execution_instances || 100) });
         value.summary.projected_execution_instances = value.derivation.projection.projected_execution_instances;
         value.summary.projection = value.derivation.projection.dimensions;
         value.summary.narrowing_suggestions = value.derivation.projection.narrowing_suggestions;
@@ -156,6 +162,7 @@ export class AuditVerticalSlice {
     const derivation = deriveCoverage({
       discovery, tier, diff,
       matrix: { ...matrixFromRequest(request), profile_max_execution_instances: matrixBudget || undefined, host_max_execution_instances: Number(request.__host_max_execution_instances || 100) },
+      destructive_allowed: request.allow_destructive !== false,
       input_versions: {
         workspace_digest: digest(this.root), profile_digest: digest(String(request.profile_path || "")),
         route_map_digest: digest("default-route-map"), diff_digest: digest(String(request.diff_ref || "NOOP")),
@@ -183,15 +190,16 @@ export class AuditVerticalSlice {
   }
 
   private async fillPlanner({ request, coverage, targetUrl }: { request: Record<string, unknown>; coverage: CoveragePreview; targetUrl: string }): Promise<PlannerArtifacts> {
-    const candidates = fixtureCandidates(targetUrl);
-    const skeletons = FIXTURE_PLAN.cases.map((item) => ({
+    const requirements = requirementsFromCoverage(coverage);
+    const candidates = this.engineModes.plan_engine === "declarative" ? buildCandidateCatalog({ discovery: coverage.discovery as unknown as { observations: Array<Record<string, unknown>> }, requirements, manualOverlay: { allowed_origin: new URL(targetUrl).origin } }) : fixtureCandidates(targetUrl);
+    const skeletons = this.engineModes.plan_engine === "declarative" ? buildRequirementPlannerInput(requirements, candidates) : FIXTURE_PLAN.cases.map((item) => ({
       case_id: item.case_id, feature_id: item.feature_id, scenario: item.scenario, route_id: "route_" + item.case_id,
       action_ids: Object.values(candidates.actions).filter((candidate) => candidate.case_id === item.case_id).map((candidate) => candidate.id),
       expectation_ids: Object.values(candidates.expectations).filter((candidate) => candidate.case_id === item.case_id).map((candidate) => candidate.id),
       status: coverage.derivation.skeleton.find((candidate) => candidate.case_id === item.case_id)?.status || "PLANNED"
     }));
     const input: PlannerInput = {
-      schemaVersion: "2.1", skeletons, candidates, contractRefs: [{ contractId: "fixture-plan", version: "2.1", ref: "fixture://plan" }],
+      schemaVersion: "2.1", skeletons, candidates, contractRefs: [{ contractId: this.engineModes.plan_engine === "declarative" ? "test-requirement-plan" : "fixture-plan", version: "2.1", ref: this.engineModes.plan_engine === "declarative" ? "requirement://derived" : "fixture://plan" }],
       untrustedObservations: Object.entries(coverage.discovery).slice(0, 24).map(([kind, value], index) => ({ observationId: "obs_" + index, untrusted: true as const, kind, value: JSON.stringify(redactSecrets(value)).slice(0, 400) }))
     };
     const options: PlannerProviderOptions = { provider_id: "local-structured", provider_version: "1", model_id: "local-deterministic", timeout_ms: 2000, token_budget: 2048, temperature: 0, max_attempts: 2, ...this.plannerConfig };
@@ -215,7 +223,7 @@ export class AuditVerticalSlice {
     const validation = validatePlannerOutput(input, output, { allowedOrigin: new URL(targetUrl).origin, production: this.production });
     if (!validation.ok) throw plannerError("PLAN_VALIDATION_FAILED: " + validation.errors.join("; "));
     const template = cache.get(key) || cache.put(key, output, options);
-    return { input, output, template, audit: { schema_version: "2.1", provider_id: options.provider_id, provider_version: options.provider_version, model_id: options.model_id, temperature: 0, timeout_ms: options.timeout_ms, token_budget: options.token_budget, attempts, cache_hit: Boolean(cached), output_digest: template.selections_digest } };
+    return { input, output, template, requirements, candidateCatalog: this.engineModes.plan_engine === "declarative" ? candidates : undefined, audit: { schema_version: "2.1", provider_id: options.provider_id, provider_version: options.provider_version, model_id: options.model_id, temperature: 0, timeout_ms: options.timeout_ms, token_budget: options.token_budget, attempts, cache_hit: Boolean(cached), output_digest: template.selections_digest } };
   }
 
   private variant(value: FixtureVariant | undefined): FixtureVariant { return value === "fail" || value === "incomplete" ? value : "pass"; }
@@ -229,6 +237,8 @@ export class AuditVerticalSlice {
 }
 
 function plannerError(message: string): Error & { code: string } { return Object.assign(new Error(message), { code: "PLAN_DEFECT" }); }
+function requirementsFromCoverage(coverage: CoveragePreview): TestRequirement[] { const requirements = coverage.derivation.cdd.requirements; return Array.isArray(requirements) ? requirements as TestRequirement[] : []; }
+function emptyCatalog(): CandidateCatalog { return { routes: {}, actions: {}, locators: {}, inputs: {}, expectations: {}, endpoints: {} }; }
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> { let timer: NodeJS.Timeout | undefined; try { return await Promise.race([promise, new Promise<T>((_, reject) => { timer = setTimeout(() => reject(plannerError("PLANNER_TIMEOUT")), timeoutMs); })]); } finally { if (timer) clearTimeout(timer); } }
 function fixtureCandidates(origin: string): CandidateCatalog {
   const routes: CandidateCatalog["routes"] = {}; const actions: CandidateCatalog["actions"] = {}; const locators: CandidateCatalog["locators"] = {}; const inputs: CandidateCatalog["inputs"] = {}; const expectations: CandidateCatalog["expectations"] = {}; const endpoints: CandidateCatalog["endpoints"] = {};

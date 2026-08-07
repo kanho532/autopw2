@@ -32,8 +32,8 @@ function readJson(file) { return JSON.parse(fs.readFileSync(file, "utf8")); }
 check("m9-golden-snapshot-present", golden.schema_version === "autopw.m9-baseline/1.0");
 check("m9-default-engine-modes", JSON.stringify(DEFAULT_ENGINE_MODES) === JSON.stringify(golden.engine_modes));
 check("m9-invalid-engine-mode-rejected", (() => { try { resolveEngineModes({ plan_engine: "page" }); return false; } catch (error) { return error.code === "INVALID_PLAN_ENGINE_MODE"; } })());
-check("m9-unimplemented-plan-engine-rejected", (() => { try { resolveEngineModes({ plan_engine: "declarative" }); return false; } catch (error) { return error.code === "PLAN_ENGINE_NOT_IMPLEMENTED"; } })());
-check("m9-unimplemented-discovery-engine-rejected", (() => { try { resolveEngineModes({ discovery_engine: "structured" }); return false; } catch (error) { return error.code === "DISCOVERY_ENGINE_NOT_IMPLEMENTED"; } })());
+check("m9-declarative-plan-engine-available", resolveEngineModes({ plan_engine: "declarative" }).plan_engine === "declarative");
+check("m9-structured-discovery-engine-available", resolveEngineModes({ discovery_engine: "structured" }).discovery_engine === "structured");
 check("m9-fixture-plan-has-three-cases", FIXTURE_PLAN.cases.length === golden.fixture_case_ids.length && JSON.stringify(FIXTURE_PLAN.cases.map((item) => item.case_id)) === JSON.stringify(golden.fixture_case_ids));
 check("m9-phase-order-is-frozen", golden.phase_order.join(",") === "TARGET_READY,SEED_RESOLVED,DISCOVERED,COVERAGE_DERIVED,PLAN_FILLED,PLAN_FROZEN,SUITE_GENERATED,SUITE_FROZEN,RUNNING,EXECUTION_FINISHED,RUNTIME_FINALIZED,AUDITED,REPORTED,GATED");
 check("m9-mcp-contract-count-unchanged", readJson(path.join(root, "packages", "mcp-contracts", "contracts", "manifest.json")).tools.length === 10);

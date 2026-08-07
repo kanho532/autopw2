@@ -40,6 +40,8 @@
     "verify:m9:runner": "npm run build:m2 && node tools/verify-m9-plan-runner.mjs",
     "verify:m9:legacy-12": "npm run build:m2 && node tools/verify-m9-legacy-12.mjs",
     "verify:m9:structured-discovery": "npm run build:m2 && node tools/verify-m9-structured-discovery.mjs",
+    "verify:m9:requirements": "npm run build:m2 && node tools/verify-m9-requirements.mjs",
+    "verify:m9:generated-plan": "npm run build:m2 && node tools/verify-m9-generated-plan.mjs",
     "audit:prod": "npm audit --omit=dev",
     "verify:m2": "npm run verify:m1 && npm run build:m2 && node tools/verify-m2.mjs",
     "contract": "node tools/verify-m0.mjs --check contract",
