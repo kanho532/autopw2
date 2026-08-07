@@ -14,10 +14,11 @@
         "additionalProperties": false,
         "required": ["relative_path", "kind", "size_bytes", "sha256"],
         "properties": {
-          "relative_path": { "type": "string", "pattern": "^cases/[A-Za-z0-9_.:%-]+/artifacts/[^/]+$" },
+          "relative_path": { "type": "string", "pattern": "^cases/[A-Za-z0-9_.:%-]+/artifacts/art_[a-f0-9]{64}(?:\\.[A-Za-z0-9_.-]+)?$" },
           "kind": { "type": "string", "pattern": "^[A-Za-z0-9_.:-]+$" },
           "size_bytes": { "type": "integer", "minimum": 0 },
-          "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+          "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "display_name": { "type": "string", "pattern": "^[A-Za-z0-9_.:-]+$" }
         }
       }
     }

@@ -26,12 +26,14 @@ const ACTION_KEYS: Record<string, string[]> = {
 export function validatePlan(plan: unknown): ValidationResult {
   const errors: string[] = [];
   if (!isObject(plan)) return { ok: false, errors: ["plan must be an object"] };
+  if (!onlyKeys(plan, ["plan_schema", "plan_id", "generated_at", "origin", "coverage_eligible", "target", "fixtures", "cases"])) errors.push("plan has unknown fields");
   if (plan.plan_schema !== TEST_PLAN_SCHEMA) errors.push("plan_schema must be " + TEST_PLAN_SCHEMA);
   requireString(plan, "plan_id", errors, ID_PATTERN, "plan_id");
   if (typeof plan.generated_at !== "string" || !isIsoDate(plan.generated_at)) errors.push("generated_at must be an ISO date-time");
-  if (!isOrigin(plan.origin)) errors.push("origin is invalid");
+  if (!isPlanOrigin(plan.origin)) errors.push("origin is invalid");
   if (typeof plan.coverage_eligible !== "boolean") errors.push("coverage_eligible must be boolean");
   if (plan.target !== undefined && (!isObject(plan.target) || !onlyKeys(plan.target, ["base_path"]))) errors.push("target is invalid");
+  if (isObject(plan.target) && plan.target.base_path !== undefined) validateProjectPath(plan.target.base_path, errors);
   if (plan.fixtures !== undefined && !isObject(plan.fixtures)) errors.push("fixtures must be an object");
   if (!Array.isArray(plan.cases) || plan.cases.length === 0) errors.push("cases must be a non-empty array");
   const seen = new Set<string>();
@@ -54,7 +56,7 @@ function validateCase(item: TestCase, plan: Record<string, unknown>, errors: str
   if (typeof item.case_id !== "string" || !ID_PATTERN.test(item.case_id)) errors.push(prefix + ": invalid case_id");
   else if (seen.has(item.case_id)) errors.push(prefix + ": duplicate case_id");
   else seen.add(item.case_id);
-  if (item.origin !== undefined && !isOrigin(item.origin)) errors.push(prefix + ": invalid origin");
+  if (item.origin !== undefined && !isCaseOrigin(item.origin)) errors.push(prefix + ": invalid origin");
   for (const key of ["title", "feature_id"] as const) if (typeof item[key] !== "string" || !item[key]) errors.push(prefix + ": " + key + " is required");
   if (!Array.isArray(item.requirement_refs) || item.requirement_refs.length === 0 || item.requirement_refs.some((value) => typeof value !== "string" || !ID_PATTERN.test(value)) || new Set(item.requirement_refs).size !== item.requirement_refs.length) errors.push(prefix + ": invalid requirement_refs");
   if (!SCENARIOS.includes(item.scenario)) errors.push(prefix + ": invalid scenario");
@@ -137,10 +139,14 @@ function validateLocator(locator: unknown, plan: Record<string, unknown>, errors
   if (caseOrigin && isObject(caseOrigin) && caseOrigin.type === "generated" && locator.by === "css") errors.push(prefix + ": generated plan cannot use CSS locator");
 }
 
-function validateRelativePath(value: string, prefix: string, errors: string[]): void { if (!value || HTTP_PATTERN.test(value) || value.includes("..") || !SAFE_PATH_PATTERN.test(value)) errors.push(prefix + ": unsafe URL/path"); }
+function validateRelativePath(value: string, prefix: string, errors: string[]): void { if (!isSafeRelativePath(value)) errors.push(prefix + ": unsafe URL/path"); }
+function validateProjectPath(value: unknown, errors: string[]): void { if (typeof value !== "string" || !value || HTTP_PATTERN.test(value) || value.startsWith("/") || !/^(?:\.|[A-Za-z0-9_.-])[A-Za-z0-9_./-]*$/.test(value) || hasParentSegment(value)) errors.push("target.base_path is unsafe"); }
+function isSafeRelativePath(value: string): boolean { return Boolean(value) && !HTTP_PATTERN.test(value) && SAFE_PATH_PATTERN.test(value) && !hasParentSegment(value); }
+function hasParentSegment(value: string): boolean { return value.split("/").some((segment) => segment === ".."); }
 function validVariableName(value: unknown): value is string { return typeof value === "string" && VARIABLE_NAME_PATTERN.test(value); }
 function isIsoDate(value: string): boolean { return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value) && !Number.isNaN(Date.parse(value)); }
-function isOrigin(value: unknown): boolean { return isObject(value) && ["generated", "manual", "migrated", "bootstrap"].includes(String(value.type)) && onlyKeys(value, ["type", "source_ref", "generator_version", "discovery_digest", "requirement_digest", "legacy_case_id"]); }
+function isPlanOrigin(value: unknown): boolean { return isObject(value) && ["generated", "manual", "migrated", "bootstrap"].includes(String(value.type)) && onlyKeys(value, ["type", "source_ref", "generator_version", "discovery_digest", "requirement_digest"]); }
+function isCaseOrigin(value: unknown): boolean { return isObject(value) && ["generated", "manual", "migrated", "bootstrap"].includes(String(value.type)) && onlyKeys(value, ["type", "source_ref", "legacy_case_id"]); }
 function onlyKeys(value: Record<string, unknown>, allowed: string[]): boolean { return Object.keys(value).every((key) => allowed.includes(key)); }
 function isObject(value: unknown): value is Record<string, any> { return Boolean(value) && typeof value === "object" && !Array.isArray(value); }
 function requireString(value: Record<string, any>, key: string, errors: string[], pattern: RegExp | undefined, label: string): void { if (typeof value[key] !== "string" || (pattern && !pattern.test(value[key]))) errors.push(label + " is invalid"); }

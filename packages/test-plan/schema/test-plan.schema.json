@@ -11,18 +11,23 @@
     "generated_at": {"type": "string", "format": "date-time"},
     "origin": {"$ref": "#/$defs/origin"},
     "coverage_eligible": {"type": "boolean"},
-    "target": {"type": "object", "additionalProperties": false, "properties": {"base_path": {"type": "string"}}},
+    "target": {"type": "object", "additionalProperties": false, "properties": {"base_path": {"$ref": "#/$defs/projectPath"}}},
     "fixtures": {"type": "object"},
     "cases": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/case"}}
   },
+  "allOf": [
+    {
+      "if": {"properties": {"origin": {"type": "object", "properties": {"type": {"const": "generated"}}, "required": ["type"]}}, "required": ["origin"]},
+      "then": {"properties": {"cases": {"type": "array", "items": {"$ref": "#/$defs/noCssCase"}}}}
+    }
+  ],
   "$defs": {
     "origin": {
       "type": "object", "additionalProperties": false, "required": ["type"],
       "properties": {
         "type": {"enum": ["generated", "manual", "migrated", "bootstrap"]},
         "source_ref": {"type": "string"}, "generator_version": {"type": "string"},
-        "discovery_digest": {"type": "string"}, "requirement_digest": {"type": "string"},
-        "legacy_case_id": {"type": "string"}
+        "discovery_digest": {"type": "string"}, "requirement_digest": {"type": "string"}
       }
     },
     "caseOrigin": {
@@ -45,6 +50,12 @@
         {"$ref": "#/$defs/expectChecked"}, {"$ref": "#/$defs/noConsole"}, {"$ref": "#/$defs/expectStatus"}, {"$ref": "#/$defs/expectHeader"},
         {"$ref": "#/$defs/expectJson"}, {"$ref": "#/$defs/expectJsonSchema"}, {"$ref": "#/$defs/setVariable"}, {"$ref": "#/$defs/captureText"},
         {"$ref": "#/$defs/captureAttribute"}, {"$ref": "#/$defs/captureJson"}
+      ]
+    },
+    "noCssStep": {
+      "allOf": [
+        {"$ref": "#/$defs/step"},
+        {"not": {"type": "object", "properties": {"locator": {"type": "object", "properties": {"by": {"const": "css"}}, "required": ["by"]}}, "required": ["locator"]}}
       ]
     },
     "goto": {"type": "object", "additionalProperties": false, "required": ["action", "path"], "properties": {"action": {"const": "goto"}, "path": {"$ref": "#/$defs/relativePath"}}},
@@ -90,8 +101,21 @@
         "setup": {"type": "array", "items": {"$ref": "#/$defs/step"}},
         "steps": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/step"}},
         "cleanup": {"type": "array", "items": {"$ref": "#/$defs/step"}}
-      }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"origin": {"type": "object", "properties": {"type": {"const": "generated"}}, "required": ["type"]}}, "required": ["origin"]},
+          "then": {"properties": {"setup": {"type": "array", "items": {"$ref": "#/$defs/noCssStep"}}, "steps": {"type": "array", "items": {"$ref": "#/$defs/noCssStep"}}, "cleanup": {"type": "array", "items": {"$ref": "#/$defs/noCssStep"}}}}
+        }
+      ]
     },
-    "relativePath": {"type": "string", "pattern": "^(?:/|\\./|[A-Za-z0-9_.-])[A-Za-z0-9_./?=&:%{}$-]*$"}
+    "noCssCase": {
+      "allOf": [
+        {"$ref": "#/$defs/case"},
+        {"type": "object", "properties": {"setup": {"type": "array", "items": {"$ref": "#/$defs/noCssStep"}}, "steps": {"type": "array", "items": {"$ref": "#/$defs/noCssStep"}}, "cleanup": {"type": "array", "items": {"$ref": "#/$defs/noCssStep"}}}}
+      ]
+    },
+    "relativePath": {"type": "string", "pattern": "^(?:/|\\./|[A-Za-z0-9_.-])[A-Za-z0-9_./?=&:%{}$-]*$", "not": {"pattern": "(^|/)\\.\\.(?:/|$)"}},
+    "projectPath": {"type": "string", "pattern": "^(?:\\.|[A-Za-z0-9_.-])[A-Za-z0-9_./-]*$", "not": {"pattern": "(^|/)\\.\\.(?:/|$)"}}
   }
 }

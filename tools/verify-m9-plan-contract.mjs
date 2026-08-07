@@ -79,6 +79,15 @@ check("m9.1-environment-variable-rejected", !plan.validatePlan({ ...base, cases:
 check("m9.1-unsafe-url-rejected", !plan.validatePlan({ ...base, cases: [{ ...uiCase, steps: [{ action: "goto", path: "https://evil.example" }] }] }).ok);
 check("m9.1-automatic-css-rejected", !plan.validatePlan({ ...base, origin: { type: "generated" }, cases: [{ ...uiCase, steps: [{ action: "click", locator: { by: "css", value: "#save", authority: "trusted_manual" } }] }] }).ok);
 check("m9.1-trusted-manual-css-accepted", plan.validatePlan({ ...base, cases: [{ ...uiCase, steps: [{ action: "click", locator: { by: "css", value: "#save", authority: "trusted_manual" } }] }] }).ok);
+const parityCases = [
+  ["extra-top-level-field", { ...validUi, script: "dangerous" }],
+  ["unsafe-parent-path", { ...base, cases: [{ ...uiCase, steps: [{ action: "goto", path: "/api/../../secret" }] }] }],
+  ["invalid-target-path", { ...validUi, target: { base_path: "../outside" } }],
+  ["invalid-origin-field", { ...validUi, origin: { type: "manual", legacy_case_id: "case_ui" } }],
+  ["invalid-timestamp", { ...validUi, generated_at: "not-a-date" }],
+  ["generated-css-plan", { ...base, origin: { type: "generated" }, cases: [{ ...uiCase, steps: [{ action: "click", locator: { by: "css", value: "#save", authority: "trusted_manual" } }] }] }]
+];
+for (const [name, candidate] of parityCases) check("m9.1-schema-runtime-parity-" + name, Boolean(schemaValidator(candidate)) === plan.validatePlan(candidate).ok);
 
 const normalized = plan.normalizePlan({ ...base, cases: [apiCase, uiCase] });
 const reversed = plan.normalizePlan({ ...base, cases: [uiCase, apiCase] });

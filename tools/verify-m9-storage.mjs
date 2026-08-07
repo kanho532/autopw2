@@ -24,7 +24,7 @@ try {
   check("m9.2-opaque-artifact-handle", /^art_[a-f0-9]{64}$/.test(ref.handle) && !ref.handle.includes("trace.zip"));
   const indexPath = storage.artifactIndexPath(runId);
   const index = JSON.parse(fs.readFileSync(indexPath, "utf8"));
-  check("m9.2-artifact-index-written", index.schema_version === "1.0" && index.artifacts[ref.handle]?.relative_path === "cases/case_create%3A1/artifacts/trace.zip");
+  check("m9.2-artifact-index-written", index.schema_version === "1.0" && /^cases\/case_create%3A1\/artifacts\/art_[a-f0-9]{64}\.zip$/.test(index.artifacts[ref.handle]?.relative_path) && index.artifacts[ref.handle]?.display_name === "trace.zip");
   check("m9.2-index-records-kind-size-digest", index.artifacts[ref.handle].kind === "playwright-trace" && index.artifacts[ref.handle].size_bytes === 10 && /^[a-f0-9]{64}$/.test(index.artifacts[ref.handle].sha256));
   check("m9.2-index-handle-resolves", storage.readArtifactRef(runId, ref).toString() === "trace-data");
   check("m9.2-kind-confusion-rejected", rejects(() => storage.readArtifactRef(runId, { ...ref, kind: "screenshot" }), "ARTIFACT_HANDLE_INVALID"));
@@ -33,6 +33,9 @@ try {
   check("m9.2-case-file-traversal-rejected", rejects(() => storage.writeCaseJson(runId, caseId, "../escape.json", {})));
   check("m9.2-artifact-file-traversal-rejected", rejects(() => storage.writeCaseArtifact(runId, caseId, "../escape.bin", "binary", "x")));
   check("m9.2-empty-artifact-kind-rejected", rejects(() => storage.writeCaseArtifact(runId, caseId, "empty.bin", "", "x"), "ARTIFACT_KIND_INVALID"));
+  const firstVersion = storage.writeCaseArtifact(runId, caseId, "immutable.zip", "trace", "version-a");
+  const secondVersion = storage.writeCaseArtifact(runId, caseId, "immutable.zip", "trace", "version-b");
+  check("m9.2-same-display-name-uses-distinct-immutable-paths", firstVersion.handle !== secondVersion.handle && storage.readArtifactRef(runId, firstVersion).toString() === "version-a" && storage.readArtifactRef(runId, secondVersion).toString() === "version-b");
 
   const legacy = storage.writeArtifact(runId, "legacy.json", "legacy.json", "legacy");
   check("m9.2-legacy-handle-remains-readable", storage.readArtifactRef(runId, legacy).toString() === "legacy");

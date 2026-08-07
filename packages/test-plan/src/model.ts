@@ -31,21 +31,25 @@ export type LocatorRef =
 
 export interface GotoStep { action: "goto"; path: string; }
 export interface ReloadStep { action: "reload"; }
-export interface LocatorActionStep { action: "click" | "select" | "check" | "uncheck"; locator: LocatorRef; value?: string; }
+export interface ClickStep { action: "click"; locator: LocatorRef; }
+export interface SelectStep { action: "select"; locator: LocatorRef; value: string; }
+export interface CheckStep { action: "check"; locator: LocatorRef; }
+export interface UncheckStep { action: "uncheck"; locator: LocatorRef; }
+export type LocatorActionStep = ClickStep | SelectStep | CheckStep | UncheckStep;
 export interface FillStep { action: "fill"; locator: LocatorRef; value: string; }
 export interface PressStep { action: "press"; locator: LocatorRef; key: string; }
 export interface WaitForStep { action: "wait_for"; locator?: LocatorRef; state?: "visible" | "hidden" | "attached"; timeout_ms?: number; }
 export interface ApiRequestStep { action: "api_request"; method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" | "HEAD"; path: string; headers?: Record<string, string>; body?: unknown; save_as?: string; }
 export interface ExpectVisibleStep { action: "expect_visible" | "expect_hidden"; locator: LocatorRef; }
-export interface ExpectTextStep { action: "expect_text"; locator: LocatorRef; equals?: string; contains?: string; }
+export type ExpectTextStep = { action: "expect_text"; locator: LocatorRef; equals: string; contains?: never } | { action: "expect_text"; locator: LocatorRef; contains: string; equals?: never };
 export interface ExpectValueStep { action: "expect_value"; locator: LocatorRef; equals: string; }
 export interface ExpectCountStep { action: "expect_count"; locator: LocatorRef; equals: number; }
 export interface ExpectUrlStep { action: "expect_url"; path: string; }
 export interface ExpectCheckedStep { action: "expect_checked"; locator: LocatorRef; checked: boolean; }
 export interface ExpectNoConsoleErrorsStep { action: "expect_no_console_errors"; }
 export interface ExpectStatusStep { action: "expect_status"; source: string; equals: number; }
-export interface ExpectHeaderStep { action: "expect_header"; source: string; name: string; equals?: string; contains?: string; }
-export interface ExpectJsonStep { action: "expect_json"; source: string; path: string; equals?: unknown; exists?: boolean; }
+export type ExpectHeaderStep = { action: "expect_header"; source: string; name: string; equals: string; contains?: never } | { action: "expect_header"; source: string; name: string; contains: string; equals?: never };
+export type ExpectJsonStep = { action: "expect_json"; source: string; path: string; equals: unknown; exists?: never } | { action: "expect_json"; source: string; path: string; exists: boolean; equals?: never };
 export interface ExpectJsonSchemaStep { action: "expect_json_schema"; source: string; schema: unknown; }
 export interface SetVariableStep { action: "set_variable"; name: string; value: unknown; }
 export interface CaptureTextStep { action: "capture_text"; locator: LocatorRef; save_as: string; }

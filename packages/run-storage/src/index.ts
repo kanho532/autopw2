@@ -3,14 +3,14 @@ import fs from "node:fs";
 import path from "node:path";
 
 export interface ArtifactRef { handle: string; kind: string; size_bytes?: number; }
-export interface ArtifactIndexEntry { relative_path: string; kind: string; size_bytes: number; sha256: string; }
+export interface ArtifactIndexEntry { relative_path: string; kind: string; size_bytes: number; sha256: string; display_name?: string; }
 export interface ArtifactIndex { schema_version: "1.0"; artifacts: Record<string, ArtifactIndexEntry>; }
 export interface RunEvent { seq: number; kind: string; phase?: string; at: string; detail: Record<string, unknown>; }
 
 const SAFE_ID = /^[A-Za-z0-9_.:-]+$/;
 const SAFE_KIND = /^[A-Za-z0-9_.:-]+$/;
 const ARTIFACT_HANDLE = /^art_[a-f0-9]{64}$/;
-const ARTIFACT_INDEX_PATH = /^cases\/[A-Za-z0-9_.:%-]+\/artifacts\/[^/]+$/;
+const ARTIFACT_INDEX_PATH = /^cases\/[A-Za-z0-9_.:%-]+\/artifacts\/art_[a-f0-9]{64}(?:\.[A-Za-z0-9_.-]+)?$/;
 
 export class RunStorage {
   readonly dataRoot: string;
@@ -46,13 +46,16 @@ export class RunStorage {
     this.assertSafeFileName(name, "artifact file name");
     if (typeof kind !== "string" || !SAFE_KIND.test(kind)) throw Object.assign(new Error("artifact kind is invalid"), { code: "ARTIFACT_KIND_INVALID" });
     this.caseDir(runId, caseId);
-    const relativePath = this.toPortablePath(path.join("cases", this.caseStorageSegment(caseId), "artifacts", name));
     const bytes = Buffer.isBuffer(data) ? data : Buffer.from(data);
-    this.writeFile(runId, relativePath, bytes);
+    const logicalPath = this.toPortablePath(path.join("cases", this.caseStorageSegment(caseId), "artifacts", name));
     const sha256 = crypto.createHash("sha256").update(bytes).digest("hex");
-    const handle = "art_" + crypto.createHash("sha256").update(runId + "\0" + relativePath + "\0" + kind).update(bytes).digest("hex");
+    const handle = "art_" + crypto.createHash("sha256").update(runId + "\0" + logicalPath + "\0" + kind).update(bytes).digest("hex");
+    const extension = path.extname(name);
+    const storedName = handle + extension;
+    const relativePath = this.toPortablePath(path.join("cases", this.caseStorageSegment(caseId), "artifacts", storedName));
+    this.writeFile(runId, relativePath, bytes);
     this.updateArtifactIndex(runId, (index) => {
-      index.artifacts[handle] = { relative_path: relativePath, kind, size_bytes: bytes.length, sha256 };
+      index.artifacts[handle] = { relative_path: relativePath, kind, size_bytes: bytes.length, sha256, display_name: name };
       return index;
     });
     return { handle, kind, size_bytes: bytes.length };
@@ -183,7 +186,7 @@ export class RunStorage {
   private validateArtifactIndex(index: ArtifactIndex): void {
     if (!index || index.schema_version !== "1.0" || !index.artifacts || typeof index.artifacts !== "object" || Array.isArray(index.artifacts)) throw Object.assign(new Error("artifact index is invalid"), { code: "ARTIFACT_INDEX_INVALID" });
     for (const [handle, entry] of Object.entries(index.artifacts)) {
-      if (!ARTIFACT_HANDLE.test(handle) || !entry || !ARTIFACT_INDEX_PATH.test(entry.relative_path) || !SAFE_KIND.test(entry.kind) || !Number.isInteger(entry.size_bytes) || entry.size_bytes < 0 || !/^[a-f0-9]{64}$/.test(entry.sha256)) throw Object.assign(new Error("artifact index entry is invalid"), { code: "ARTIFACT_INDEX_INVALID" });
+      if (!ARTIFACT_HANDLE.test(handle) || !entry || !ARTIFACT_INDEX_PATH.test(entry.relative_path) || !SAFE_KIND.test(entry.kind) || !Number.isInteger(entry.size_bytes) || entry.size_bytes < 0 || !/^[a-f0-9]{64}$/.test(entry.sha256) || (entry.display_name !== undefined && !this.isSafeDisplayName(entry.display_name))) throw Object.assign(new Error("artifact index entry is invalid"), { code: "ARTIFACT_INDEX_INVALID" });
     }
   }
 
@@ -231,6 +234,10 @@ export class RunStorage {
 
   private assertSafeFileName(value: string, label: string): void {
     if (typeof value !== "string" || !value || value === "." || value === ".." || path.basename(value) !== value || value.includes("/") || value.includes("\\")) throw Object.assign(new Error(label + " is invalid"), { code: "SAFE_PATH_INVALID" });
+  }
+
+  private isSafeDisplayName(value: unknown): value is string {
+    return typeof value === "string" && Boolean(value) && path.basename(value) === value && !value.includes("/") && !value.includes("\\");
   }
 
   private assertRealpathWithin(base: string, target: string): void {
