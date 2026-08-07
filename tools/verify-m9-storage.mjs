@@ -38,6 +38,12 @@ try {
   const index = JSON.parse(fs.readFileSync(indexPath, "utf8"));
   check("m9.2-artifact-index-written", index.schema_version === "1.0" && /^cases\/case_create%3A1\/artifacts\/art_[a-f0-9]{64}\.zip$/.test(index.artifacts[ref.handle]?.relative_path) && index.artifacts[ref.handle]?.display_name === "trace.zip");
   check("m9.2-index-records-kind-size-digest", index.artifacts[ref.handle].kind === "playwright-trace" && index.artifacts[ref.handle].size_bytes === 10 && /^[a-f0-9]{64}$/.test(index.artifacts[ref.handle].sha256));
+  fs.renameSync(indexPath, indexPath + ".previous");
+  const fallbackIndex = storage.readArtifactIndex(runId);
+  check("m9.2-reader-fallback-does-not-rename", fallbackIndex?.schema_version === "1.0" && !fs.existsSync(indexPath) && fs.existsSync(indexPath + ".previous"));
+  fs.renameSync(indexPath + ".previous", indexPath);
+  const sameRef = storage.writeCaseArtifact(runId, caseId, "trace.zip", "playwright-trace", Buffer.from("trace-data"));
+  check("m9.2-identical-artifact-is-idempotent", sameRef.handle === ref.handle && storage.readArtifactRef(runId, sameRef).toString() === "trace-data");
   const corruptedIndex = structuredClone(index);
   corruptedIndex.artifacts[ref.handle].relative_path = corruptedIndex.artifacts[ref.handle].relative_path.replace(ref.handle, "art_" + "b".repeat(64));
   fs.writeFileSync(indexPath, JSON.stringify(corruptedIndex));
@@ -73,7 +79,7 @@ try {
   const concurrentIndex = storage.readArtifactIndex(runId);
   check("m9.2-concurrent-index-retains-all-artifacts", concurrentIndex && concurrent.length === 8 && Object.keys(concurrentIndex.artifacts).length >= 45);
   check("m9.2-concurrent-artifacts-resolve", Object.values(concurrentIndex.artifacts).filter((entry) => entry.kind === "worker").every((entry) => storage.readArtifactRef(runId, { handle: Object.keys(concurrentIndex.artifacts).find((handle) => concurrentIndex.artifacts[handle] === entry), kind: entry.kind }).length > 0));
-  const leftovers = fs.readdirSync(dataRoot, { recursive: true }).filter((name) => name.endsWith(".lock") || name.includes(".tmp."));
+  const leftovers = fs.readdirSync(dataRoot, { recursive: true }).filter((name) => name.endsWith(".lock") || name.includes(".tmp.") || name.endsWith(".previous"));
   check("m9.2-concurrent-no-lock-or-temp-leftovers", leftovers.length === 0);
   storage.writeJson(runId, "cas-state.json", { lease: { state_version: 1 } });
   const casResults = await Promise.all(Array.from({ length: 8 }, (_, workerId) => new Promise((resolve, reject) => {

@@ -58,7 +58,7 @@ export class RunStorage {
     const extension = path.extname(name);
     const storedName = handle + extension;
     const relativePath = this.toPortablePath(path.join("cases", this.caseStorageSegment(caseId), "artifacts", storedName));
-    this.writeFile(runId, relativePath, bytes);
+    this._writeImmutableFile(runId, relativePath, bytes, sha256);
     this.updateArtifactIndex(runId, (index) => {
       index.artifacts[handle] = { relative_path: relativePath, kind, size_bytes: bytes.length, sha256, display_name: name };
       return index;
@@ -72,9 +72,8 @@ export class RunStorage {
 
   readJson<T>(runId: string, name: string): T | undefined {
     const file = this.safePath(runId, name);
-    this._recoverFileReplacement(file);
-    if (!fs.existsSync(file)) return undefined;
-    return JSON.parse(fs.readFileSync(file, "utf8")) as T;
+    const bytes = this._readFileWithFallback(file);
+    return bytes === undefined ? undefined : JSON.parse(bytes.toString("utf8")) as T;
   }
 
   compareAndSwapJson<T extends { lease?: { state_version?: number } }>(runId: string, name: string, expectedVersion: number, mutator: (value: T) => T): T | undefined {
@@ -174,15 +173,44 @@ export class RunStorage {
 
   private _releaseLock(handle: LockHandle): void {
     try { fs.closeSync(handle.fd); } catch { /* already closed */ }
+    const directory = path.dirname(handle.path);
+    const baseName = path.basename(handle.path);
+    let candidates = [handle.path];
     try {
-      const metadata = JSON.parse(fs.readFileSync(handle.path, "utf8") || "{}") as { owner_token?: string };
-      if (metadata.owner_token === handle.ownerToken) fs.rmSync(handle.path, { force: true });
+      candidates = candidates.concat(fs.readdirSync(directory).filter((name) => name.startsWith(baseName + ".stale.")).map((name) => path.join(directory, name)));
     } catch { /* best effort lock cleanup */ }
+    for (const candidate of candidates) {
+      try {
+        const metadata = JSON.parse(fs.readFileSync(candidate, "utf8") || "{}") as LockMetadata;
+        if (metadata.owner_token === handle.ownerToken) fs.rmSync(candidate, { force: true });
+      } catch { /* best effort lock cleanup */ }
+    }
   }
 
   writeFile(runId: string, name: string, data: Buffer | string): void {
     const target = this.safePath(runId, name);
     fs.mkdirSync(path.dirname(target), { recursive: true });
+    const lock = target + ".write.lock";
+    const handle = this._acquireRetryingLock(lock);
+    try { this._writeFileLocked(target, data); } finally { this._releaseLock(handle); }
+  }
+
+  private _writeImmutableFile(runId: string, name: string, data: Buffer, sha256: string): void {
+    const target = this.safePath(runId, name);
+    const lock = target + ".write.lock";
+    const handle = this._acquireRetryingLock(lock);
+    try {
+      this._recoverFileReplacement(target);
+      if (fs.existsSync(target)) {
+        const existing = fs.readFileSync(target);
+        if (existing.length === data.length && crypto.createHash("sha256").update(existing).digest("hex") === sha256) return;
+        throw Object.assign(new Error("immutable artifact path already contains different content"), { code: "ARTIFACT_HANDLE_COLLISION" });
+      }
+      this._writeFileLocked(target, data);
+    } finally { this._releaseLock(handle); }
+  }
+
+  private _writeFileLocked(target: string, data: Buffer | string): void {
     this._recoverFileReplacement(target);
     const temporary = target + ".tmp." + process.pid + "." + crypto.randomUUID();
     fs.writeFileSync(temporary, data);
@@ -190,7 +218,7 @@ export class RunStorage {
       this._syncFile(temporary);
       let lastError: unknown;
       for (let attempt = 0; attempt < 20; attempt += 1) {
-        try { fs.renameSync(temporary, target); return; }
+        try { fs.renameSync(temporary, target); this._syncDirectory(path.dirname(target)); return; }
         catch (error) {
           lastError = error;
           if (!["EEXIST", "EPERM", "EACCES", "ENOTEMPTY"].includes((error as NodeJS.ErrnoException).code || "")) throw error;
@@ -219,6 +247,7 @@ export class RunStorage {
       throw error;
     }
     try { fs.rmSync(previous, { force: true }); } catch { /* recovery will clean it on next access */ }
+    this._syncDirectory(path.dirname(target));
   }
 
   private _recoverFileReplacement(target: string): void {
@@ -232,6 +261,14 @@ export class RunStorage {
     }
   }
 
+  private _readFileWithFallback(target: string): Buffer | undefined {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try { if (fs.existsSync(target)) return fs.readFileSync(target); } catch { /* retry around a concurrent replacement */ }
+      try { if (fs.existsSync(target + ".previous")) return fs.readFileSync(target + ".previous"); } catch { /* retry around a concurrent replacement */ }
+    }
+    return undefined;
+  }
+
   private _syncFile(file: string): void {
     const fd = fs.openSync(file, "r");
     try { this._syncDescriptor(fd); } finally { fs.closeSync(fd); }
@@ -240,6 +277,15 @@ export class RunStorage {
   private _syncDescriptor(fd: number): void {
     try { fs.fsyncSync(fd); } catch (error) {
       if (!["EPERM", "EINVAL", "ENOTSUP"].includes((error as NodeJS.ErrnoException).code || "")) throw error;
+    }
+  }
+
+  private _syncDirectory(directory: string): void {
+    try {
+      const fd = fs.openSync(directory, "r");
+      try { this._syncDescriptor(fd); } finally { fs.closeSync(fd); }
+    } catch (error) {
+      if (!["EPERM", "EINVAL", "ENOTSUP", "EISDIR"].includes((error as NodeJS.ErrnoException).code || "")) throw error;
     }
   }
 
@@ -264,9 +310,9 @@ export class RunStorage {
 
   readArtifactIndex(runId: string): ArtifactIndex | undefined {
     const file = this.artifactIndexPath(runId);
-    this._recoverFileReplacement(file);
-    if (!fs.existsSync(file)) return undefined;
-    const index = JSON.parse(fs.readFileSync(file, "utf8")) as ArtifactIndex;
+    const bytes = this._readFileWithFallback(file);
+    if (bytes === undefined) return undefined;
+    const index = JSON.parse(bytes.toString("utf8")) as ArtifactIndex;
     this.validateArtifactIndex(index);
     return index;
   }
