@@ -289,10 +289,10 @@ function requirementOracleMapFor(requirements: TestRequirement[], plan: TestPlan
   const ids = new Set(requirements.map((item) => item.requirement_id));
   const map: Record<string, string[]> = {};
   for (const item of plan.cases) {
-    const steps = [...(item.setup || []), ...item.steps, ...(item.cleanup || [])];
-    const bindings = steps.flatMap((step, index) => step.action.startsWith("expect_") ? [`${item.case_id}:step_${index}`] : []);
-    if (!bindings.length) continue;
-    for (const requirementId of item.requirement_refs) if (ids.has(requirementId)) (map[requirementId] ||= []).push(...bindings);
+    for (const binding of item.oracle_bindings || []) {
+      if (!ids.has(binding.requirement_id)) continue;
+      for (const stepRef of binding.step_refs) (map[binding.requirement_id] ||= []).push(`${item.case_id}:${stepRef}`);
+    }
   }
   return Object.fromEntries(Object.entries(map).sort(([a], [b]) => a.localeCompare(b)).map(([key, value]) => [key, [...new Set(value)].sort()]));
 }

@@ -56,7 +56,7 @@ export function assertValidPlan(plan: unknown, context: PlanValidationContext = 
 function validateCase(item: TestCase, plan: Record<string, unknown>, errors: string[], seen: Set<string>, context: PlanValidationContext): void {
   const raw = item as unknown as Record<string, unknown>;
   const prefix = "case " + String(item.case_id || "<unknown>");
-  if (!onlyKeys(raw, ["case_id", "origin", "title", "feature_id", "requirement_refs", "scenario", "priority", "effective_tier", "kind", "risk", "confidence", "execution_policy", "setup", "steps", "cleanup"])) errors.push(prefix + ": unknown case field");
+  if (!onlyKeys(raw, ["case_id", "origin", "title", "feature_id", "requirement_refs", "oracle_bindings", "scenario", "priority", "effective_tier", "kind", "risk", "confidence", "execution_policy", "setup", "steps", "cleanup"])) errors.push(prefix + ": unknown case field");
   if (typeof item.case_id !== "string" || !ID_PATTERN.test(item.case_id)) errors.push(prefix + ": invalid case_id");
   else if (seen.has(item.case_id)) errors.push(prefix + ": duplicate case_id");
   else seen.add(item.case_id);
@@ -64,6 +64,8 @@ function validateCase(item: TestCase, plan: Record<string, unknown>, errors: str
   if (isObject(plan.origin) && plan.origin.type === "generated" && item.origin !== undefined && item.origin.type !== "generated") errors.push(prefix + ": generated plan cannot override case origin");
   for (const key of ["title", "feature_id"] as const) if (typeof item[key] !== "string" || !item[key]) errors.push(prefix + ": " + key + " is required");
   if (!Array.isArray(item.requirement_refs) || item.requirement_refs.length === 0 || item.requirement_refs.some((value) => typeof value !== "string" || !ID_PATTERN.test(value)) || new Set(item.requirement_refs).size !== item.requirement_refs.length) errors.push(prefix + ": invalid requirement_refs");
+  const allSteps = [...(Array.isArray(item.setup) ? item.setup : []), ...(Array.isArray(item.steps) ? item.steps : []), ...(Array.isArray(item.cleanup) ? item.cleanup : [])] as Array<{ action?: string }>;
+  if (item.oracle_bindings !== undefined) validateOracleBindings(item.oracle_bindings, item.requirement_refs, allSteps, errors, prefix);
   if (!SCENARIOS.includes(item.scenario)) errors.push(prefix + ": invalid scenario");
   if (!["P0", "P1", "P2"].includes(item.priority) || !["smoke", "fast", "full"].includes(item.effective_tier) || !["ui", "api", "hybrid"].includes(item.kind) || !["read_only", "mutating", "destructive"].includes(item.risk)) errors.push(prefix + ": invalid case policy enum");
   if (typeof item.confidence !== "number" || !Number.isFinite(item.confidence) || item.confidence < 0 || item.confidence > 1) errors.push(prefix + ": confidence must be between 0 and 1");
@@ -78,6 +80,23 @@ function validateCase(item: TestCase, plan: Record<string, unknown>, errors: str
     if (phase === "steps" && (!Array.isArray(item.steps) || item.steps.length === 0)) errors.push(prefix + ": steps must be a non-empty array");
     if (item[phase] !== undefined && !Array.isArray(item[phase])) errors.push(prefix + ": " + phase + " must be an array");
     if (Array.isArray(item[phase])) validateSteps(item[phase], phase, errors, prefix, bindings, context);
+  }
+}
+
+function validateOracleBindings(bindings: unknown, requirementRefs: string[], allSteps: Array<{ action?: string }>, errors: string[], prefix: string): void {
+  if (!Array.isArray(bindings) || bindings.length === 0) { errors.push(prefix + ": oracle_bindings must be a non-empty array"); return; }
+  const seenRequirements = new Set<string>();
+  for (const binding of bindings) {
+    if (!isObject(binding) || !onlyKeys(binding, ["requirement_id", "step_refs"]) || typeof binding.requirement_id !== "string" || !Array.isArray(binding.step_refs) || binding.step_refs.length === 0) { errors.push(prefix + ": invalid oracle binding"); continue; }
+    if (!requirementRefs.includes(binding.requirement_id) || seenRequirements.has(binding.requirement_id)) errors.push(prefix + ": oracle binding requirement_id is not unique and declared");
+    seenRequirements.add(binding.requirement_id);
+    const seenSteps = new Set<string>();
+    for (const ref of binding.step_refs) {
+      const match = typeof ref === "string" ? ref.match(/^step_(\d+)$/) : null;
+      const index = match ? Number(match[1]) : -1;
+      if (!match || seenSteps.has(ref) || !allSteps[index] || typeof allSteps[index].action !== "string" || !allSteps[index].action.startsWith("expect_")) errors.push(prefix + ": oracle binding step_ref must point to a unique expect step");
+      seenSteps.add(String(ref));
+    }
   }
 }
 

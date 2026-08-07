@@ -44,10 +44,16 @@ try {
   check("m9.9-external-plan-source-is-persisted", fs.existsSync(path.join(dataRoot, "runs", overlaid.output.run_id, "plan-source.json")));
   const weakPlan = path.join(dataRoot, "weak-manual-plan.json");
   const weak = JSON.parse(fs.readFileSync(generatedPlan, "utf8"));
-  for (const item of weak.cases) item.steps = item.steps.filter((step) => !step.action.startsWith("expect_"));
+  for (const item of weak.cases) { item.steps = item.steps.filter((step) => !step.action.startsWith("expect_")); delete item.oracle_bindings; }
   fs.writeFileSync(weakPlan, JSON.stringify(weak, null, 2));
   const laundered = await runCli([...common, "--plan", weakPlan, "--plan-mode", "replace"]);
   check("m9.9-external-manual-plan-cannot-launder-oracle", laundered.output.gate === "incomplete" && laundered.output.audit_status === "INCOMPLETE");
+  const unboundPlan = path.join(dataRoot, "unbound-manual-plan.json");
+  const unbound = JSON.parse(fs.readFileSync(generatedPlan, "utf8"));
+  for (const item of unbound.cases) delete item.oracle_bindings;
+  fs.writeFileSync(unboundPlan, JSON.stringify(unbound, null, 2));
+  const unboundResult = await runCli([...common, "--plan", unboundPlan, "--plan-mode", "replace"]);
+  check("m9.9-external-arbitrary-expectation-cannot-earn-oracle-credit", unboundResult.output.gate === "incomplete" && unboundResult.output.audit_status === "INCOMPLETE");
 } finally {
   await target.close();
   fs.rmSync(dataRoot, { recursive: true, force: true });

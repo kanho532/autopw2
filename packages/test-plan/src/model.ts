@@ -21,6 +21,7 @@ export interface CaseOrigin {
   source_ref?: string;
   legacy_case_id?: string;
 }
+export interface OracleBinding { requirement_id: string; step_refs: string[]; }
 
 export type LocatorRef =
   | { by: "role"; role: string; name?: string; exact?: boolean }
@@ -67,6 +68,7 @@ export interface TestCase {
   title: string;
   feature_id: string;
   requirement_refs: string[];
+  oracle_bindings?: OracleBinding[];
   scenario: Scenario;
   priority: Priority;
   effective_tier: EffectiveTier;
