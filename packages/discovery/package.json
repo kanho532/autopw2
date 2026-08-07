@@ -6,6 +6,6 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
-  "dependencies": { "@autopw/security": "2.1.0-rc5.mcp-first" },
+  "dependencies": { "@autopw/security": "2.1.0-rc5.mcp-first", "playwright": "1.62.1" },
   "description": "AutoPW bounded source and target Discovery service."
 }

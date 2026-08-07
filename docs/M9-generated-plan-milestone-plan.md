@@ -1,6 +1,6 @@
 # M9–M10 Generated Test Plan Migration Plan
 
-Status: M9.2 Case-scoped Evidence Storage complete
+Status: M9.5 Structured Discovery complete
 Date: 2026-08-07
 
 This document is the repository-facing execution plan for the generated test
@@ -36,9 +36,9 @@ and digests are intentionally excluded.
 | M9.0 | Freeze compatibility and flags | baseline verifier + Golden Snapshot |
 | M9.1 | Declarative `@autopw/test-plan` contract | schema, validator, loader, fixture adapter — complete |
 | M9.2 | Case-scoped evidence storage | safe case paths and Artifact Index — complete |
-| M9.3 | Unified UI/API/Hybrid runner | variables, cleanup, trace, classification |
-| M9.4 | Legacy-12 parity | migrated plan with legacy requirements |
-| M9.5 | Structured Discovery | static/live facts with bounded budgets |
+| M9.3 | Unified UI/API/Hybrid runner | variables, cleanup, trace, classification - complete |
+| M9.4 | Legacy-12 parity | migrated plan with legacy requirements - complete |
+| M9.5 | Structured Discovery | static/live facts with bounded budgets - complete |
 | M9.6 | Requirement derivation | TestRequirement and coverage reconciliation |
 | M9.7 | Planner/Compiler loop | deterministic candidate-only executable plans |
 | M9.8 | Coverage-governed audit | requirement-aware Audit, Gate, Report |
@@ -51,9 +51,10 @@ and digests are intentionally excluded.
   migrated.
 - Keep the MCP 2.1 public request unchanged; external URL and plan source are
   Host/CLI concerns.
-- Keep the Fixture/legacy execution path as the only executable path through
-  M9.2; future declarative/structured modes remain fail-closed until their
-  implementation milestones are accepted.
+- Keep the default Core execution path Fixture-driven and the public engine
+  flags fail-closed until the later Planner/Compiler loop is accepted. M9.4's
+  migrated plan and M9.5's Discovery are independently executable acceptance
+  paths and do not silently switch the default Core mode.
 - Treat missing coverage as `incomplete`, never as a product defect.
 - Keep untrusted observations and plans non-authoritative.
 - Do not let Planner output bypass Candidate validation or security policy.

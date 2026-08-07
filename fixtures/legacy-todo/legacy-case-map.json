@@ -1,0 +1,17 @@
+{
+  "plan_id": "legacy-todo-12",
+  "cases": {
+    "legacy_A_not_found": "A",
+    "legacy_B_title_validation": "B",
+    "legacy_C_summary": "C",
+    "legacy_D_create_refresh": "D",
+    "legacy_E_completed": "E",
+    "legacy_F_delete": "F",
+    "legacy_G_priority": "G",
+    "legacy_H_detail": "H",
+    "legacy_I_frontend_cors": "I_frontend",
+    "legacy_I_backend_patch": "I_backend",
+    "legacy_J_search": "J",
+    "legacy_L_count": "L"
+  }
+}

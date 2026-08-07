@@ -8,6 +8,10 @@ This repository has completed **M8 (release hardening)**. M0 freezes the public 
 
 ## Development language
 
+M9.4 Legacy-12 Parity and M9.5 Structured Discovery are complete. The default
+Core modes remain `plan_engine=fixture` and `discovery_engine=legacy` until the
+later Planner/Compiler closed loop is accepted.
+
 The primary implementation language is **TypeScript** (`.ts`) with strict type checking. JavaScript modules are limited to generators and verification harnesses; new runtime code belongs in the TypeScript packages and is consumed through the build output.
 
 ## Run the acceptance gates
@@ -26,11 +30,15 @@ npm run verify:m9:baseline
 npm run verify:m9:plan-contract
 npm run verify:m9:storage
 npm run verify:m9:runner
+npm run verify:m9:legacy-12
+npm run verify:m9:structured-discovery
 ```
 `verify:m6` includes the M1–M6 acceptance gates. M2–M6 install and use the pinned Playwright Chromium fixture where the vertical slice requires it.
 `verify:m9:baseline` reruns the M0–M8 chain and checks the normalized M9.0 Golden Snapshot.
 
 ## Layout
+- `apps/todo-fixture-target` - stable repository-owned Todo target for M9.4/M9.5
+- `fixtures/legacy-todo` - migrated twelve-case TestPlan and Requirement map
 - `packages/test-plan` — Declarative TestPlan model, schema, validator, loader, merge/digest and Fixture compatibility adapter
 - `packages/schemas` — Draft 2020-12 JSON Schema bundle (single-source enums + limits + common $defs + 39 persistents)
 - `packages/mcp-contracts` — 10 MCP tool contracts, Host Context contract, generated TypeScript types

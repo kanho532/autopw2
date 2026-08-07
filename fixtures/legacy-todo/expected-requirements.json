@@ -1,0 +1,16 @@
+{
+  "requirements": [
+    "req_task_not_found",
+    "req_task_title_validation",
+    "req_task_summary",
+    "req_task_create_refresh",
+    "req_task_completed",
+    "req_task_delete",
+    "req_task_priority_enum",
+    "req_task_detail",
+    "req_task_patch_cors",
+    "req_task_patch_persistence",
+    "req_task_search",
+    "req_task_count"
+  ]
+}
