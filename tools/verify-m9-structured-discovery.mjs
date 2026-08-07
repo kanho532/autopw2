@@ -40,6 +40,26 @@ try {
   const budgetLimited = await discovery.discover({ root: projectRoot, budget: { max_depth: 4, max_files: 1, static_timeout_ms: 3000, allowed_origins: [allowedOrigin] } });
   check("m9.5-budget-exceeded-is-explicit-blocker", budgetLimited.budget.budget_exceeded && budgetLimited.budget.blockers.includes("DISCOVERY_STATIC_FILE_BUDGET_EXCEEDED") && budgetLimited.observations.some((item) => item.kind === "objective_blocker"));
 
+  const budgetRoot = fs.mkdtempSync(path.join(process.env.TEMP || process.env.TMP || ".", "autopw-m9.5-budget-"));
+  try {
+    fs.mkdirSync(path.join(budgetRoot, "nested"));
+    fs.writeFileSync(path.join(budgetRoot, "nested", "page.html"), "<main>budget fixture</main>");
+    const directoryLimited = await discovery.discover({ root: budgetRoot, budget: { max_depth: 4, max_files: 50, max_directories: 1, static_timeout_ms: 3000 } });
+    check("m9.5-directory-budget-is-explicit-blocker", directoryLimited.budget.budget_exceeded && directoryLimited.budget.blockers.includes("DISCOVERY_STATIC_DIRECTORY_BUDGET_EXCEEDED"));
+
+    const routeLimited = await discovery.discover({ root: projectRoot, budget: { max_depth: 4, max_files: 50, max_routes: 1, static_timeout_ms: 3000 } });
+    check("m9.5-route-budget-is-explicit-blocker", routeLimited.budget.budget_exceeded && routeLimited.budget.blockers.includes("DISCOVERY_ROUTE_BUDGET_EXCEEDED"));
+
+    const hugeFile = path.join(budgetRoot, "huge-generated.json");
+    const hugeFd = fs.openSync(hugeFile, "w");
+    try { fs.ftruncateSync(hugeFd, 1_073_741_824); } finally { fs.closeSync(hugeFd); }
+    const boundedFile = await discovery.discover({ root: budgetRoot, budget: { max_depth: 4, max_files: 10, static_timeout_ms: 500 } });
+    check("m9.5-static-file-read-is-bounded", !boundedFile.budget.budget_exceeded && boundedFile.metrics.static_discovery_wall_ms < 500);
+
+    const launchLimited = await discovery.discover({ root: projectRoot, target_url: target.baseUrl, budget: { max_depth: 4, max_files: 50, static_timeout_ms: 3000, live_timeout_ms: 1, route_timeout_ms: 1000, allowed_origins: [allowedOrigin] } });
+    check("m9.5-live-launch-budget-is-explicit-blocker", launchLimited.budget.budget_exceeded && launchLimited.budget.blockers.includes("DISCOVERY_LIVE_BUDGET_EXCEEDED"));
+  } finally { fs.rmSync(budgetRoot, { recursive: true, force: true }); }
+
   let rejectedOrigin = false;
   try { await discovery.discover({ root: projectRoot, target_url: target.baseUrl, budget: { allowed_origins: ["https://invalid.example"] } }); } catch (error) { rejectedOrigin = error?.message === "DISCOVERY_ORIGIN_NOT_ALLOWED"; }
   check("m9.5-origin-policy-rejects-target", rejectedOrigin);

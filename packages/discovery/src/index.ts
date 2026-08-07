@@ -71,7 +71,16 @@ export async function discover(input: DiscoveryInput): Promise<DiscoveryResult> 
     if (filesScanned >= budget.max_files || performance.now() >= staticDeadline) { budgetExceeded = true; addBlocker(blockers, filesScanned >= budget.max_files ? "DISCOVERY_STATIC_FILE_BUDGET_EXCEEDED" : "DISCOVERY_STATIC_BUDGET_EXCEEDED"); break; }
     filesScanned += 1;
     const relative = path.relative(root, file).replaceAll(path.sep, "/");
-    const source = readBounded(file);
+    let source = "";
+    try {
+      source = readBounded(file, staticDeadline);
+    } catch (error) {
+      if (error instanceof Error && error.message === "DISCOVERY_STATIC_BUDGET_EXCEEDED") {
+        budgetExceeded = true;
+        addBlocker(blockers, error.message);
+        break;
+      }
+    }
     const matched = mappings.filter((mapping) => mappingMatches(mapping.file_glob, relative));
     const features = [...new Set(matched.flatMap((mapping) => mapping.features.filter((feature) => feature !== "*")))];
     const featureIds = features.length ? features : inferFeatures(relative, source);
@@ -113,7 +122,7 @@ export async function discover(input: DiscoveryInput): Promise<DiscoveryResult> 
     try {
       const originGuard = new BrowserNetworkGuard(input.budget?.allowed_origins?.length ? input.budget.allowed_origins : [new URL(input.target_url).origin]);
       if (!originGuard.check(input.target_url).allowed) throw new Error("DISCOVERY_ORIGIN_NOT_ALLOWED");
-      const targetObservation = await discoverTarget(input.target_url, budget, input.budget?.allowed_origins || [], discoveredRoutes, liveController.signal, (resources) => {
+      const targetObservation = await discoverTarget(input.target_url, budget, input.budget?.allowed_origins || [], discoveredRoutes, liveStarted + budget.live_timeout_ms, liveController.signal, (resources) => {
         Object.assign(liveResources, resources);
         if (liveController.signal.aborted) void closeLiveResources(liveResources);
       });
@@ -164,23 +173,23 @@ export function resolveProjectRoot(root: string, projectSubpath: string): string
 }
 
 interface TargetDiscovery { observations: Record<string, unknown>[]; candidates: DiscoveryCandidate[]; facts: DiscoveryFact[]; scenario_observations: ScenarioObservation[]; contactedOrigins: Set<string>; blockedOrigins: Set<string>; }
-async function discoverTarget(targetUrl: string, budget: typeof DEFAULT_BUDGET, allowedOrigins: string[], discoveredRoutes: Set<string>, signal: AbortSignal, registerResources: (resources: LiveResources) => void): Promise<TargetDiscovery> {
-  throwIfAborted(signal);
+async function discoverTarget(targetUrl: string, budget: typeof DEFAULT_BUDGET, allowedOrigins: string[], discoveredRoutes: Set<string>, liveDeadline: number, signal: AbortSignal, registerResources: (resources: LiveResources) => void): Promise<TargetDiscovery> {
+  assertLiveBudget(signal, liveDeadline);
   const url = new URL(targetUrl); const network = new BrowserNetworkGuard(allowedOrigins.length > 0 ? allowedOrigins : [url.origin]); await network.assertAllowedAsync(url.toString());
-  throwIfAborted(signal);
-  const browser = await chromium.launch({ headless: true }); const resources: LiveResources = { browser }; registerResources(resources); throwIfAborted(signal);
-  const context = await browser.newContext({ serviceWorkers: "block" }); resources.context = context; registerResources(resources); throwIfAborted(signal);
-  const page = await context.newPage(); resources.page = page; registerResources(resources); throwIfAborted(signal);
+  assertLiveBudget(signal, liveDeadline);
+  const browser = await chromium.launch({ headless: true, timeout: remainingMs(liveDeadline) }); const resources: LiveResources = { browser }; registerResources(resources); assertLiveBudget(signal, liveDeadline);
+  const context = await browser.newContext({ serviceWorkers: "block" }); resources.context = context; registerResources(resources); assertLiveBudget(signal, liveDeadline);
+  const page = await context.newPage(); resources.page = page; registerResources(resources); assertLiveBudget(signal, liveDeadline);
   const observations: Record<string, unknown>[] = []; const candidates: DiscoveryCandidate[] = []; const facts: DiscoveryFact[] = []; const contactedOrigins = new Set<string>(); const blockedOrigins = new Set<string>(); let networkObservations = 0;
   const recordRequest = (requestUrl: string): void => { if (networkObservations >= budget.max_network_observations) return; networkObservations += 1; try { const origin = new URL(requestUrl).origin; if (network.check(requestUrl).allowed) contactedOrigins.add(origin); else blockedOrigins.add(origin); } catch { /* untrusted request URL */ } };
   page.on("request", (request) => recordRequest(request.url()));
   await context.route("**/*", async (route) => { try { throwIfAborted(signal); await network.assertAllowedAsync(route.request().url()); await route.continue(); } catch { try { blockedOrigins.add(new URL(route.request().url()).origin); } catch { /* ignore malformed URL */ } await route.abort("blockedbyclient").catch(() => undefined); } });
   try {
-    throwIfAborted(signal);
-    await page.goto(targetUrl, { waitUntil: "domcontentloaded", timeout: budget.route_timeout_ms });
-    throwIfAborted(signal);
+    assertLiveBudget(signal, liveDeadline);
+    await page.goto(targetUrl, { waitUntil: "domcontentloaded", timeout: Math.min(budget.route_timeout_ms, remainingMs(liveDeadline)) });
+    assertLiveBudget(signal, liveDeadline);
     const controls = await page.locator("button,input,select,textarea,a").evaluateAll((nodes) => nodes.map((node) => ({ tag: node.nodeName.toLowerCase(), id: node.getAttribute("id"), role: node.getAttribute("role"), accessible_name: node.getAttribute("aria-label") || (node.textContent || "").trim().slice(0, 100), required: node.hasAttribute("required"), max_length: node.getAttribute("maxlength") }))).catch(() => []);
-    throwIfAborted(signal);
+    assertLiveBudget(signal, liveDeadline);
     const route = new URL(page.url()).pathname || "/";
     const routeKey = "PAGE|" + route;
     if (!discoveredRoutes.has(routeKey) && discoveredRoutes.size >= budget.max_routes) throw new Error("DISCOVERY_ROUTE_BUDGET_EXCEEDED");
@@ -213,6 +222,8 @@ function endpointOperation(method: string, endpoint: string): string { if (endpo
 function liveFeature(id: string | null, accessibleName: string | null): string { const value = ((id || "") + " " + (accessibleName || "")).toLowerCase(); if (/name|submit|required|success|form/.test(value)) return "demo_form"; if (accessibleName?.toLowerCase() === "search") return "todo.search"; return "demo_health"; }
 function normalizeEndpoint(endpoint: string): string { try { const url = new URL(endpoint, "http://discovery.invalid"); return url.pathname + (url.search ? url.search.replace(/%20/g, " ") : ""); } catch { return endpoint.split("?")[0] || endpoint; } }
 function throwIfAborted(signal: AbortSignal): void { if (signal.aborted) throw new Error("DISCOVERY_LIVE_BUDGET_EXCEEDED"); }
+function assertLiveBudget(signal: AbortSignal, deadline: number): void { throwIfAborted(signal); if (performance.now() >= deadline) throw new Error("DISCOVERY_LIVE_BUDGET_EXCEEDED"); }
+function remainingMs(deadline: number): number { const remaining = Math.ceil(deadline - performance.now()); if (remaining <= 0) throw new Error("DISCOVERY_LIVE_BUDGET_EXCEEDED"); return remaining; }
 async function closeLiveResources(resources: LiveResources): Promise<void> { for (const resource of [resources.page, resources.context, resources.browser]) await resource?.close().catch(() => undefined); }
 function assertStaticBudget(deadline: number): void { if (performance.now() >= deadline) throw new Error("DISCOVERY_STATIC_BUDGET_EXCEEDED"); }
 function walk(dir: string, depth: number, maxDepth: number, maxFiles: number, maxDirectories: number, ignoredGlobs: string[], deadline: number, state: WalkState): void {
@@ -228,7 +239,23 @@ function walk(dir: string, depth: number, maxDepth: number, maxFiles: number, ma
     else if (/\.(?:ts|tsx|js|jsx|mjs|cjs|html|vue|svelte|yaml|yml|json)$/.test(entry.name)) state.files.push(full);
   }
 }
-function readBounded(file: string): string { try { return fs.readFileSync(file, "utf8").slice(0, 100_000); } catch { return ""; } }
+function readBounded(file: string, deadline: number): string {
+  assertStaticBudget(deadline);
+  let fd: number | undefined;
+  try {
+    fd = fs.openSync(file, "r");
+    assertStaticBudget(deadline);
+    const buffer = Buffer.allocUnsafe(100_000);
+    const bytes = fs.readSync(fd, buffer, 0, buffer.length, 0);
+    assertStaticBudget(deadline);
+    return buffer.subarray(0, bytes).toString("utf8");
+  } catch (error) {
+    if (error instanceof Error && error.message === "DISCOVERY_STATIC_BUDGET_EXCEEDED") throw error;
+    return "";
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
 function inferFeatures(relative: string, source: string): string[] { if (/todo|task|priority|summary|count/i.test(source + relative)) return ["todo.fixture"]; if (/demo-form|#name|#submit/.test(source)) return ["demo_form"]; if (/<(?:body|main|form|button|input)\b|document\.querySelector|router\.|route\s*[:=]/i.test(source)) return [/health|status/i.test(source) ? "demo_health" : safeId(path.basename(relative, path.extname(relative))) || "project_root"]; return []; }
 function inferRoute(relative: string, source: string): string { return /listen\(|<body|<main/.test(source) || /index\.(?:ts|js|html)$/.test(relative) ? "/" : "/" + relative.replace(/\.[^.]+$/, ""); }
 function safeId(value: string): string { return value.replace(/[^A-Za-z0-9_.:-]+/g, "_").slice(0, 70); }
