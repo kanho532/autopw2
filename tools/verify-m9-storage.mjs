@@ -14,9 +14,14 @@ if (!isMainThread) {
     parentPort.postMessage({ ok: true, won: result !== undefined });
     process.exit(0);
   }
-  for (let index = 0; index < 5; index += 1) workerStorage.writeCaseArtifact(workerData.runId, "case_worker", "worker_" + workerData.workerId + "_" + index + ".bin", "worker", Buffer.from(workerData.workerId + ":" + index));
-  parentPort.postMessage({ ok: true });
-  process.exit(0);
+  try {
+    for (let index = 0; index < 5; index += 1) workerStorage.writeCaseArtifact(workerData.runId, "case_worker", "worker_" + workerData.workerId + "_" + index + ".bin", "worker", Buffer.from(workerData.workerId + ":" + index));
+    parentPort.postMessage({ ok: true });
+    process.exit(0);
+  } catch (error) {
+    parentPort.postMessage({ ok: false, error: error.code });
+    process.exit(1);
+  }
 }
 const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "autopw-m9-storage-"));
 const storage = new RunStorage(dataRoot);
@@ -68,7 +73,8 @@ try {
   check("m9.2-case-isolation-in-index", index.artifacts[ref.handle].relative_path.includes("case_create%3A1") && storage.readArtifactRef(runId, secondRef).toString() === "response");
   check("m9.2-index-schema-present", fs.existsSync(path.join(root, "packages/run-storage/schema/artifact-index.schema.json")));
   const staleLockPath = storage.artifactIndexPath(runId) + ".lock";
-  fs.writeFileSync(staleLockPath, JSON.stringify({ pid: process.pid, thread_id: 999, owner_token: "crashed-worker", created_at: Date.now() - 60_000, expires_at: Date.now() - 60_000 }));
+  fs.mkdirSync(staleLockPath);
+  fs.writeFileSync(path.join(staleLockPath, "owner.crashed-worker.json"), JSON.stringify({ pid: process.pid, thread_id: 999, owner_token: "crashed-worker", created_at: Date.now() - 60_000, expires_at: Date.now() - 60_000 }));
   check("m9.2-stale-lock-recovers", storage.writeCaseArtifact(runId, "case_recovery", "recovered.bin", "recovery", "ok").kind === "recovery");
   const concurrent = await Promise.all(Array.from({ length: 8 }, (_, workerId) => new Promise((resolve, reject) => {
     const worker = new Worker(new URL("./verify-m9-storage.mjs", import.meta.url), { workerData: { dataRoot, runId, workerId } });
