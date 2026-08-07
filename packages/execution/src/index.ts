@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import Ajv from "ajv";
 import { chromium, firefox, webkit, type APIResponse, type Browser, type BrowserContext, type BrowserType, type Page } from "playwright";
 import { assertValidPlan, fromFixturePlan, normalizePlan, resolveInterpolation, type EffectiveTier, type LocatorRef, type TestCase, type TestPlan, type TestStep, type PlanValidationContext } from "@autopw/test-plan";
 import type { FixturePlan, FixtureVariant } from "@autopw/execution-fixture";
@@ -67,20 +68,22 @@ export class PlaywrightPlanRunner {
     let plan: TestPlan;
     try { plan = fromNormalizedPlan(options.plan, authority); }
     catch (error) { throw Object.assign(error instanceof Error ? error : new Error(String(error)), { classification: "TEST_DEFECT" as const }); }
+    const requestedTier = options.tier || "fast";
+    const selectedCases = selectCases(plan, requestedTier);
     const batches = buildBatches(options.matrix);
     const network = new BrowserNetworkGuard(options.allowedOrigins || [new URL(options.baseUrl).origin]);
     const results: ExecutionResult[] = [];
     const evidence: Record<string, unknown>[] = [];
     const batchRecords: Record<string, unknown>[] = [];
-    const instances = batches.flatMap((batch) => plan.cases.map((item) => ({ execution_id: executionId(item.case_id, batch.batch_id), case_id: item.case_id, batch_id: batch.batch_id, status: "NOT_RUN" })));
+    const instances = batches.flatMap((batch) => selectedCases.map((item) => ({ execution_id: executionId(item.case_id, batch.batch_id), case_id: item.case_id, batch_id: batch.batch_id, status: "NOT_RUN" })));
 
     for (const batch of batches) {
-      batchRecords.push({ ...batch, tier: options.tier || "fast", case_ids: plan.cases.map((item) => item.case_id) });
+      batchRecords.push({ ...batch, tier: requestedTier, case_ids: selectedCases.map((item) => item.case_id) });
       let browser: Browser | undefined;
       const completed = new Set<string>();
       try {
         browser = await browserType(batch.browser).launch({ headless: true });
-        for (const item of plan.cases) {
+        for (const item of selectedCases) {
           const blockedReason = options.blockedCaseIds?.[item.case_id];
           if (blockedReason) {
             const blocked = makeResult({ item, batch, status: "BLOCKED_RESUME", error: blockedReason, classification: "INFRA_DEFECT" });
@@ -90,7 +93,7 @@ export class PlaywrightPlanRunner {
           results.push(result); completed.add(item.case_id); persistResult(options.storage, options.runId, result, evidence);
         }
       } catch (error) {
-        for (const item of plan.cases) if (!completed.has(item.case_id)) {
+        for (const item of selectedCases) if (!completed.has(item.case_id)) {
           const blocked = makeResult({ item, batch, status: "INFRA_BLOCKED", error: redact(errorMessage(error)), classification: "INFRA_DEFECT" });
           results.push(blocked); persistResult(options.storage, options.runId, blocked, evidence);
         }
@@ -111,7 +114,7 @@ export class PlaywrightPlanRunner {
     let last: AttemptOutcome | undefined;
     for (let attempt = 0; attempt <= retries; attempt += 1) {
       const started = Date.now();
-      last = await this.runAttempt({ runId, baseUrl, plan, item, batch, browser, storage, network, traceEnabled, fixtureVariant, production });
+      last = await this.runAttempt({ runId, baseUrl, plan, item, batch, browser, storage, network, traceEnabled, fixtureVariant, production, timeoutMs: item.execution_policy.timeout_ms });
       attempts.push({ attempt: attempt + 1, status: last.status, classification: last.classification, error: last.error, duration_ms: Date.now() - started });
       if (last.status === "PASSED") break;
     }
@@ -127,9 +130,11 @@ export class PlaywrightPlanRunner {
     return result;
   }
 
-  private async runAttempt({ runId, baseUrl, plan, item, batch, browser, storage, network, traceEnabled, fixtureVariant, production }: { runId: string; baseUrl: string; plan: TestPlan; item: TestCase; batch: MatrixBatch; browser: Browser; storage: RunStorage; network: BrowserNetworkGuard; traceEnabled: boolean; fixtureVariant?: FixtureVariant; production: boolean }): Promise<AttemptOutcome> {
+  private async runAttempt({ runId, baseUrl, plan, item, batch, browser, storage, network, traceEnabled, fixtureVariant, production, timeoutMs }: { runId: string; baseUrl: string; plan: TestPlan; item: TestCase; batch: MatrixBatch; browser: Browser; storage: RunStorage; network: BrowserNetworkGuard; traceEnabled: boolean; fixtureVariant?: FixtureVariant; production: boolean; timeoutMs?: number }): Promise<AttemptOutcome> {
     if (production && (!item.execution_policy.production_allowed || item.risk !== "read_only")) return { status: "FAILED", path: [], evidence_refs: [], error: "production policy forbids this case", classification: "TEST_DEFECT", redaction_status: "COMPLETE", cleanup_status: "SKIPPED" };
     const context = await browser.newContext({ viewport: batch.viewport, locale: batch.locale, serviceWorkers: "block" });
+    const deadline = timeoutMs ? Date.now() + timeoutMs : undefined;
+    if (timeoutMs) { context.setDefaultTimeout(timeoutMs); context.setDefaultNavigationTimeout(timeoutMs); }
     const tracePath = traceEnabled && (item.kind === "ui" || item.kind === "hybrid") ? path.join(os.tmpdir(), `autopw-${executionId(item.case_id, batch.batch_id)}-${crypto.randomUUID()}.trace.zip`) : undefined;
     const scopes: Record<string, unknown> = { fixtures: plan.fixtures || {}, variables: {}, responses: {} };
     const pathResults: ExecutionPathStep[] = [];
@@ -147,7 +152,7 @@ export class PlaywrightPlanRunner {
       page.on("pageerror", (error) => consoleErrors.push(error.message));
       const runPhase = async (phase: "setup" | "test" | "cleanup", steps: TestStep[] | undefined, stopOnFailure: boolean): Promise<void> => {
         for (const step of steps || []) {
-          const result = await this.runStep({ page: page!, context, step, phase, index: pathResults.length, baseUrl, scopes, network, storage, runId, caseId: item.case_id, consoleErrors, fixtureVariant });
+          const result = await this.runStep({ page: page!, context, step, phase, index: pathResults.length, baseUrl, scopes, network, storage, runId, caseId: item.case_id, consoleErrors, fixtureVariant, deadline });
           pathResults.push(result.step);
           if (result.failure && stopOnFailure) throw result.failure;
         }
@@ -157,7 +162,7 @@ export class PlaywrightPlanRunner {
     } finally {
       try {
         if (page && item.cleanup) {
-          try { await this.runCleanup({ page, context, steps: item.cleanup, pathResults, baseUrl, scopes, network, storage, runId, caseId: item.case_id, consoleErrors, fixtureVariant }); cleanupStatus = "PASSED"; }
+          try { await this.runCleanup({ page, context, steps: item.cleanup, pathResults, baseUrl, scopes, network, storage, runId, caseId: item.case_id, consoleErrors, fixtureVariant, deadline }); cleanupStatus = "PASSED"; }
           catch (error) { cleanupStatus = "FAILED"; if (!testFailure) testFailure = isFailure(error) ? error : asFailure(error, "cleanup"); }
         }
         if (page && (item.kind === "ui" || item.kind === "hybrid")) {
@@ -180,22 +185,24 @@ export class PlaywrightPlanRunner {
     return { status, path: pathResults, evidence_refs: evidenceRefs, error: failure?.error, classification: failure?.classification, redaction_status: redactionStatus, cleanup_status: cleanupStatus };
   }
 
-  private async runCleanup({ page, context, steps, pathResults, baseUrl, scopes, network, storage, runId, caseId, consoleErrors, fixtureVariant }: { page: Page; context: BrowserContext; steps: TestStep[]; pathResults: ExecutionPathStep[]; baseUrl: string; scopes: Record<string, unknown>; network: BrowserNetworkGuard; storage: RunStorage; runId: string; caseId: string; consoleErrors: string[]; fixtureVariant?: FixtureVariant }): Promise<void> {
+  private async runCleanup({ page, context, steps, pathResults, baseUrl, scopes, network, storage, runId, caseId, consoleErrors, fixtureVariant, deadline }: { page: Page; context: BrowserContext; steps: TestStep[]; pathResults: ExecutionPathStep[]; baseUrl: string; scopes: Record<string, unknown>; network: BrowserNetworkGuard; storage: RunStorage; runId: string; caseId: string; consoleErrors: string[]; fixtureVariant?: FixtureVariant; deadline?: number }): Promise<void> {
     let firstFailure: Failure | undefined;
     for (const step of steps) {
-      const result = await this.runStep({ page, context, step, phase: "cleanup", index: pathResults.length, baseUrl, scopes, network, storage, runId, caseId, consoleErrors, fixtureVariant });
+      const result = await this.runStep({ page, context, step, phase: "cleanup", index: pathResults.length, baseUrl, scopes, network, storage, runId, caseId, consoleErrors, fixtureVariant, deadline });
       pathResults.push(result.step);
       if (result.failure && !firstFailure) firstFailure = result.failure;
     }
     if (firstFailure) throw firstFailure;
   }
 
-  private async runStep({ page, context, step, phase, index, baseUrl, scopes, network, storage, runId, caseId, consoleErrors, fixtureVariant }: StepContext): Promise<{ step: ExecutionPathStep; failure?: Failure }> {
+  private async runStep({ page, context, step, phase, index, baseUrl, scopes, network, storage, runId, caseId, consoleErrors, fixtureVariant, deadline }: StepContext): Promise<{ step: ExecutionPathStep; failure?: Failure }> {
     const started = Date.now(); const startedAt = new Date(started).toISOString();
-    const resolved = resolveInterpolation(step, scopes) as TestStep;
     const record: ExecutionPathStep = { step_index: index, phase, action: step.action, ...("locator" in step && step.locator ? { locator_ref: JSON.stringify(step.locator) } : {}), status: "FAILED", started_at: startedAt, ended_at: startedAt, finished_at: startedAt, duration_ms: 0, evidence_refs: [] };
     try {
-      const output = await this.executeStep({ page, context, step: resolved, baseUrl, scopes, network, storage, runId, caseId, consoleErrors, fixtureVariant });
+      assertDeadline(deadline);
+      const resolved = resolveInterpolation(step, scopes) as TestStep;
+      const output = await this.executeStep({ page, context, step: resolved, baseUrl, scopes, network, storage, runId, caseId, consoleErrors, fixtureVariant, deadline });
+      assertDeadline(deadline);
       record.status = "PASSED"; record.output_summary = output.summary; if (output.endpoint_ref) record.endpoint_ref = output.endpoint_ref; if (output.evidence_refs) record.evidence_refs.push(...output.evidence_refs);
       record.ended_at = new Date().toISOString(); record.finished_at = record.ended_at; record.duration_ms = Date.now() - started; return { step: record };
     } catch (error) {
@@ -204,7 +211,7 @@ export class PlaywrightPlanRunner {
     }
   }
 
-  private async executeStep({ page, context, step, baseUrl, scopes, network, storage, runId, caseId, consoleErrors, fixtureVariant }: ExecuteContext): Promise<{ summary?: unknown; endpoint_ref?: string; evidence_refs?: ArtifactRef[] }> {
+  private async executeStep({ page, context, step, baseUrl, scopes, network, storage, runId, caseId, consoleErrors, fixtureVariant, deadline }: ExecuteContext): Promise<{ summary?: unknown; endpoint_ref?: string; evidence_refs?: ArtifactRef[] }> {
     const withVariant = (value: string): string => value.replaceAll("{variant}", String(fixtureVariant || "pass"));
     const urlFor = (value: string): string => { const url = new URL(withVariant(value), baseUrl); network.assertAllowed(url.toString()); return url.toString(); };
     if (step.action === "goto") { await page.goto(urlFor(step.path), { waitUntil: "networkidle" }); return {}; }
@@ -215,22 +222,22 @@ export class PlaywrightPlanRunner {
     if (step.action === "check") { await locate(page, step.locator).check(); return {}; }
     if (step.action === "uncheck") { await locate(page, step.locator).uncheck(); return {}; }
     if (step.action === "press") { await locate(page, step.locator).press(step.key); return {}; }
-    if (step.action === "wait_for") { if (step.locator) await locate(page, step.locator).waitFor({ state: step.state || "visible", timeout: step.timeout_ms }); else await page.waitForTimeout(step.timeout_ms || 50); return {}; }
-    if (step.action === "expect_visible" || step.action === "expect_hidden") { await locate(page, step.locator).waitFor({ state: step.action === "expect_visible" ? "visible" : "hidden", timeout: 1_500 }); return {}; }
+    if (step.action === "wait_for") { if (step.locator) await locate(page, step.locator).waitFor({ state: step.state || "visible", ...(step.timeout_ms !== undefined || deadline !== undefined ? { timeout: step.timeout_ms !== undefined ? Math.min(step.timeout_ms, remainingMs(deadline)) : remainingMs(deadline) } : {}) }); else await page.waitForTimeout(Math.min(step.timeout_ms || 50, remainingMs(deadline))); return {}; }
+    if (step.action === "expect_visible" || step.action === "expect_hidden") { await locate(page, step.locator).waitFor({ state: step.action === "expect_visible" ? "visible" : "hidden", timeout: Math.min(1_500, remainingMs(deadline)) }); return {}; }
     if (step.action === "expect_text") { const text = await locate(page, step.locator).innerText(); if (step.equals !== undefined && text !== step.equals || step.contains !== undefined && !text.includes(step.contains)) throw new Error(`expect_text failed: ${JSON.stringify(text)}`); return { summary: { text: redactText(text) } }; }
     if (step.action === "expect_value") { const value = await locate(page, step.locator).inputValue(); if (value !== step.equals) throw new Error("expect_value failed"); return {}; }
     if (step.action === "expect_count") { const count = await locate(page, step.locator).count(); if (count !== step.equals) throw new Error(`expect_count failed: ${count}`); return { summary: { count } }; }
     if (step.action === "expect_url") { const actual = new URL(page.url()); const expected = new URL(withVariant(step.path), baseUrl); if (actual.pathname + actual.search + actual.hash !== expected.pathname + expected.search + expected.hash) throw new Error("expect_url failed"); return {}; }
     if (step.action === "expect_checked") { if (await locate(page, step.locator).isChecked() !== step.checked) throw new Error("expect_checked failed"); return {}; }
     if (step.action === "expect_no_console_errors") { if (consoleErrors.length) throw new Error("console error: " + consoleErrors.join(" | ")); return {}; }
-    if (step.action === "set_variable") { (scopes.variables as Record<string, unknown>)[step.name] = redactSecrets(step.value); return { summary: { name: step.name } }; }
+    if (step.action === "set_variable") { (scopes.variables as Record<string, unknown>)[step.name] = step.value; return { summary: { name: step.name } }; }
     if (step.action === "capture_text") { (scopes.variables as Record<string, unknown>)[step.save_as] = await locate(page, step.locator).innerText(); return { summary: { name: step.save_as } }; }
     if (step.action === "capture_attribute") { (scopes.variables as Record<string, unknown>)[step.save_as] = await locate(page, step.locator).getAttribute(step.attribute); return { summary: { name: step.save_as } }; }
-    if (step.action === "api_request") { const response = await apiRequest(context, urlFor(step.path), step, network); const value = await responseValue(response); if (step.save_as) (scopes.responses as Record<string, unknown>)[step.save_as] = value; const ref = storage.writeCaseArtifact(runId, caseId, `api-${Date.now()}-${crypto.randomUUID()}.json`, "api-response", JSON.stringify(redactSecrets(value), null, 2)); return { endpoint_ref: step.path, evidence_refs: [ref], summary: { status: value.status, response_ref: ref.handle } }; }
+    if (step.action === "api_request") { const response = await apiRequest(context, urlFor(step.path), step, network, deadline); const value = await responseValue(response); if (step.save_as) (scopes.responses as Record<string, unknown>)[step.save_as] = value; const ref = storage.writeCaseArtifact(runId, caseId, `api-${Date.now()}-${crypto.randomUUID()}.json`, "api-response", JSON.stringify(redactSecrets(value), null, 2)); return { endpoint_ref: step.path, evidence_refs: [ref], summary: { status: value.status, response_ref: ref.handle } }; }
     if (step.action === "expect_status") { const source = getSource(scopes, step.source); if (source.status !== step.equals) throw new Error(`expect_status failed: ${source.status}`); return {}; }
     if (step.action === "expect_header") { const source = getSource(scopes, step.source); const value = source.headers[String(step.name).toLowerCase()] || source.headers[step.name]; if (step.equals !== undefined && value !== step.equals || step.contains !== undefined && !String(value || "").includes(step.contains)) throw new Error("expect_header failed"); return {}; }
     if (step.action === "expect_json") { const source = getSource(scopes, step.source); const actual = jsonPath(source.body, step.path); if (step.exists !== undefined ? (step.exists !== (actual !== undefined)) : stableValue(actual) !== stableValue(step.equals)) throw new Error("expect_json failed"); return {}; }
-    if (step.action === "expect_json_schema") { const source = getSource(scopes, step.source); if (!matchesSchema(source.body, step.schema)) throw new Error("expect_json_schema failed"); return {}; }
+    if (step.action === "expect_json_schema") { const source = getSource(scopes, step.source); validateJsonSchema(source.body, step.schema); return {}; }
     if (step.action === "capture_json") { const source = getSource(scopes, step.source); (scopes.variables as Record<string, unknown>)[step.save_as] = step.path ? jsonPath(source.body, step.path) : source.body; return { summary: { name: step.save_as } }; }
     throw Object.assign(new Error("unsupported TestPlan step: " + step.action), { code: "PLAN_STEP_UNSUPPORTED" });
   }
@@ -249,8 +256,8 @@ export class PlaywrightFixtureRunner extends PlaywrightPlanRunner {
 }
 
 interface MatrixBatch { batch_id: string; browser: BrowserName; viewport: { width: number; height: number }; locale: string; auth_scope_id: string; }
-interface StepContext { page: Page; context: BrowserContext; step: TestStep; phase: "setup" | "test" | "cleanup"; index: number; baseUrl: string; scopes: Record<string, unknown>; network: BrowserNetworkGuard; storage: RunStorage; runId: string; caseId: string; consoleErrors: string[]; fixtureVariant?: FixtureVariant; }
-interface ExecuteContext { page: Page; context: BrowserContext; step: TestStep; baseUrl: string; scopes: Record<string, unknown>; network: BrowserNetworkGuard; storage: RunStorage; runId: string; caseId: string; consoleErrors: string[]; fixtureVariant?: FixtureVariant; }
+interface StepContext { page: Page; context: BrowserContext; step: TestStep; phase: "setup" | "test" | "cleanup"; index: number; baseUrl: string; scopes: Record<string, unknown>; network: BrowserNetworkGuard; storage: RunStorage; runId: string; caseId: string; consoleErrors: string[]; fixtureVariant?: FixtureVariant; deadline?: number; }
+interface ExecuteContext { page: Page; context: BrowserContext; step: TestStep; baseUrl: string; scopes: Record<string, unknown>; network: BrowserNetworkGuard; storage: RunStorage; runId: string; caseId: string; consoleErrors: string[]; fixtureVariant?: FixtureVariant; deadline?: number; }
 interface Failure { error: string; classification: "PRODUCT_DEFECT" | "TEST_DEFECT" | "INFRA_DEFECT"; }
 interface AttemptOutcome { status: "PASSED" | "FAILED"; path: ExecutionPathStep[]; evidence_refs: ArtifactRef[]; error?: string; classification?: Failure["classification"]; redaction_status: "COMPLETE" | "INCOMPLETE"; cleanup_status: "PASSED" | "FAILED" | "SKIPPED"; }
 
@@ -262,16 +269,44 @@ function makeResult({ item, batch, status, attempts = [], path = [], evidence_re
 function persistResult(storage: RunStorage, runId: string, result: ExecutionResult, evidence: Record<string, unknown>[]): void { storage.writeJson(runId, "checkpoints/" + result.execution_id + ".json", { execution_id: result.execution_id, case_id: result.case_id, status: result.status, attempt: result.attempts.length, path: result.path, at: result.at }); evidence.push({ execution_id: result.execution_id, items: result.evidence_refs, redacted: result.redaction_status !== "INCOMPLETE", redaction_status: result.redaction_status || "COMPLETE" }); }
 function fromNormalizedPlan(plan: TestPlan, authority: PlanValidationContext["authority"]): TestPlan { const copy = JSON.parse(JSON.stringify(plan)) as TestPlan; assertValidPlan(copy, { authority }); return normalizePlan(copy, { authority }); }
 function locate(page: Page, locator: LocatorRef) { if (locator.by === "role") return page.getByRole(locator.role as any, locator.name === undefined ? {} : { name: locator.name, exact: locator.exact }); if (locator.by === "label") return page.getByLabel(locator.text); if (locator.by === "test_id") return page.getByTestId(locator.value); if (locator.by === "text") return page.getByText(locator.text, { exact: locator.exact }); if (locator.by === "id") return page.locator("#" + locator.value); return page.locator(locator.value); }
-async function apiRequest(context: BrowserContext, url: string, step: Extract<TestStep, { action: "api_request" }>, network: BrowserNetworkGuard): Promise<APIResponse> { await network.assertAllowedAsync(url); return context.request.fetch(url, { method: step.method, headers: step.headers, data: step.body }); }
+const MAX_API_REDIRECTS = 5;
+async function apiRequest(context: BrowserContext, url: string, step: Extract<TestStep, { action: "api_request" }>, network: BrowserNetworkGuard, deadline?: number): Promise<APIResponse> {
+  let currentUrl = url;
+  let method = step.method;
+  let data: unknown = step.body;
+  for (let redirect = 0; redirect <= MAX_API_REDIRECTS; redirect += 1) {
+    assertDeadline(deadline);
+    await network.assertAllowedAsync(currentUrl);
+    const response = await context.request.fetch(currentUrl, { method, headers: step.headers, data, maxRedirects: 0, ...(deadline ? { timeout: remainingMs(deadline) } : {}) });
+    if (response.status() < 300 || response.status() >= 400) return response;
+    const location = response.headers().location;
+    if (!location) throw Object.assign(new Error("redirect response has no Location header"), { code: "API_REDIRECT_INVALID" });
+    if (redirect === MAX_API_REDIRECTS) throw Object.assign(new Error("API redirect limit exceeded"), { code: "API_REDIRECT_LIMIT" });
+    currentUrl = new URL(location, currentUrl).toString();
+    await network.assertAllowedAsync(currentUrl);
+    if (response.status() === 303 || ((response.status() === 301 || response.status() === 302) && method === "POST")) { method = "GET"; data = undefined; }
+  }
+  throw Object.assign(new Error("API redirect limit exceeded"), { code: "API_REDIRECT_LIMIT" });
+}
 async function responseValue(response: APIResponse): Promise<Record<string, unknown>> { const headers = response.headers(); const text = await response.text(); let body: unknown = text; try { body = text ? JSON.parse(text) : undefined; } catch { /* text body */ } return { status: response.status(), ok: response.ok(), url: response.url(), headers, body }; }
 function getSource(scopes: Record<string, unknown>, source: unknown): Record<string, any> { const value = source && typeof source === "object" ? source : typeof source === "string" && source.startsWith("${") ? resolveInterpolation(source, scopes) : typeof source === "string" && source.startsWith("$") ? lookup(scopes.responses, source.slice(1)) : typeof source === "string" && source.startsWith("responses.") ? lookup(scopes.responses, source.slice("responses.".length)) : lookup(scopes.responses, String(source)); if (!value || typeof value !== "object") throw Object.assign(new Error("response source is undefined: " + String(source)), { code: "PLAN_VARIABLE_UNDEFINED" }); return value as Record<string, any>; }
 function lookup(scope: unknown, expression: string): unknown { let value = scope; for (const part of expression.replace(/^\$\{?/, "").replace(/\}?$/, "").split(".").filter(Boolean)) { if (!value || typeof value !== "object" || !(part in (value as Record<string, unknown>))) throw Object.assign(new Error("undefined variable: " + expression), { code: "PLAN_VARIABLE_UNDEFINED" }); value = (value as Record<string, unknown>)[part]; } return value; }
 function jsonPath(value: unknown, expression: string): unknown { return expression.split(".").filter(Boolean).reduce<unknown>((current, part) => { const match = part.match(/^(.+)\[(\d+)\]$/); if (match) return Array.isArray(current) ? current[Number(match[2])] : undefined; return current && typeof current === "object" ? (current as Record<string, unknown>)[part] : undefined; }, value); }
 function stableValue(value: unknown): string { return JSON.stringify(value, Object.keys((value && typeof value === "object" && !Array.isArray(value)) ? value as object : {}).sort()); }
-function matchesSchema(value: unknown, schema: unknown): boolean { if (!schema || typeof schema !== "object") return false; const rule = schema as Record<string, unknown>; if (rule.type === "object" && (!value || typeof value !== "object" || Array.isArray(value))) return false; if (rule.type === "array" && !Array.isArray(value)) return false; if (rule.type === "string" && typeof value !== "string") return false; if (rule.type === "number" && typeof value !== "number") return false; if (rule.type === "boolean" && typeof value !== "boolean") return false; if (Array.isArray(rule.required) && (!value || typeof value !== "object" || rule.required.some((key) => !(key as string in (value as Record<string, unknown>))))) return false; if (rule.properties && value && typeof value === "object") return Object.entries(rule.properties as Record<string, unknown>).every(([key, child]) => !(key in (value as Record<string, unknown>)) || matchesSchema((value as Record<string, unknown>)[key], child)); return true; }
-function classifyFailure(error: unknown, action?: string): Failure { const message = redact(errorMessage(error)); const code = (error as { code?: string })?.code; if (code === "PLAN_VARIABLE_UNDEFINED" || code === "PLAN_STEP_UNSUPPORTED" || /invalid TestPlan/i.test(message)) return { error: message, classification: "TEST_DEFECT" }; if (/net::|network|blockedbyclient|ERR_|target closed|browser.*closed/i.test(message)) return { error: message, classification: "INFRA_DEFECT" }; if (/^expect_|^expect |status failed|header failed|json failed|console error/i.test(action || "") || /expect_|expect |status failed|header failed|json failed|console error/i.test(message)) return { error: message, classification: "PRODUCT_DEFECT" }; if (/strict mode|locator/i.test(message) || action === "cleanup") return { error: message, classification: "TEST_DEFECT" }; return { error: message, classification: "PRODUCT_DEFECT" }; }
+const JSON_SCHEMA_VALIDATOR = new Ajv({ allErrors: true, strict: false });
+function validateJsonSchema(value: unknown, schema: unknown): void {
+  let validate: ReturnType<typeof JSON_SCHEMA_VALIDATOR.compile>;
+  try { validate = JSON_SCHEMA_VALIDATOR.compile(schema as object); }
+  catch (error) { throw Object.assign(new Error("invalid JSON Schema: " + errorMessage(error)), { code: "PLAN_SCHEMA_INVALID" }); }
+  if (!validate(value)) throw Object.assign(new Error("expect_json_schema failed: " + JSON_SCHEMA_VALIDATOR.errorsText(validate.errors)), { code: "JSON_SCHEMA_ASSERTION_FAILED" });
+}
+function classifyFailure(error: unknown, action?: string): Failure { const message = redact(errorMessage(error)); const code = (error as { code?: string })?.code; if (code === "PLAN_VARIABLE_UNDEFINED" || code === "PLAN_STEP_UNSUPPORTED" || code === "PLAN_SCHEMA_INVALID" || code === "CASE_TIMEOUT" || /invalid TestPlan/i.test(message)) return { error: message, classification: "TEST_DEFECT" }; if (code === "JSON_SCHEMA_ASSERTION_FAILED") return { error: message, classification: "PRODUCT_DEFECT" }; if (code === "SAFETY_POLICY_VIOLATION" || /net::|network|blockedbyclient|ERR_|target closed|browser.*closed/i.test(message)) return { error: message, classification: "INFRA_DEFECT" }; if (/timeout.*exceeded|timed out/i.test(message)) return { error: message, classification: "TEST_DEFECT" }; if (/^expect_|^expect |status failed|header failed|json failed|console error/i.test(action || "") || /expect_|expect |status failed|header failed|json failed|console error/i.test(message)) return { error: message, classification: "PRODUCT_DEFECT" }; if (/strict mode|locator/i.test(message) || action === "cleanup") return { error: message, classification: "TEST_DEFECT" }; return { error: message, classification: "PRODUCT_DEFECT" }; }
 function isFailure(error: unknown): error is Failure { return Boolean(error && typeof error === "object" && typeof (error as Failure).error === "string" && typeof (error as Failure).classification === "string"); }
 function asFailure(error: unknown, phase?: string): Failure { return classifyFailure(error, phase === "cleanup" ? "cleanup" : undefined); }
 function errorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 function redact(value: string): string { return value.replace(/([?&](?:token|secret|password|authorization|cookie)=)[^&\s]+/gi, "$1[REDACTED]").replace(/(Bearer\s+)[A-Za-z0-9._-]+/gi, "$1[REDACTED]").replace(/(password|secret|token)\s*[:=]\s*[^,\s]+/gi, "$1=[REDACTED]"); }
 function redactText(value: string): string { return redact(value).slice(0, 2_000); }
+function selectCases(plan: TestPlan, tier: EffectiveTier): TestCase[] { if (plan.origin.type === "migrated") return plan.cases; const limit = tierRank(tier); return plan.cases.filter((item) => tierRank(item.effective_tier) <= limit); }
+function tierRank(tier: EffectiveTier): number { return tier === "smoke" ? 1 : tier === "fast" ? 2 : 3; }
+function remainingMs(deadline?: number): number { return deadline === undefined ? Number.MAX_SAFE_INTEGER : Math.max(1, deadline - Date.now()); }
+function assertDeadline(deadline?: number): void { if (deadline !== undefined && Date.now() >= deadline) throw Object.assign(new Error("case execution timeout exceeded"), { code: "CASE_TIMEOUT" }); }

@@ -32,11 +32,16 @@ function html(variant: FixtureVariant): string {
 export async function startDemoTarget(variant: FixtureVariant = "pass"): Promise<DemoTarget> {
   const items: Array<{ id: string; name: string; completed?: boolean }> = [{ id: "item_1", name: "fixture item", completed: false }];
   let nextId = 2;
+  let flakyCalls = 0;
   const sendJson = (response: http.ServerResponse, status: number, value: unknown): void => { response.writeHead(status, { "content-type": "application/json; charset=utf-8", "access-control-allow-origin": "*" }); response.end(JSON.stringify(value)); };
   const bodyJson = async (request: http.IncomingMessage): Promise<Record<string, unknown>> => { const chunks: Buffer[] = []; for await (const chunk of request) chunks.push(Buffer.from(chunk)); if (!Buffer.concat(chunks).length) return {}; try { return JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>; } catch { return {}; } };
   const server = http.createServer(async (request, response) => {
     const url = new URL(request.url || "/", "http://127.0.0.1");
     if (url.pathname === "/health") { response.writeHead(200, { "content-type": "application/json" }); response.end(JSON.stringify({ ok: true })); return; }
+    if (url.pathname === "/api/redirect") { response.writeHead(302, { Location: "http://169.254.169.254/latest/meta-data/" }); response.end(); return; }
+    if (url.pathname === "/api/slow") { await new Promise((resolve) => setTimeout(resolve, 100)); sendJson(response, 200, { ok: true }); return; }
+    if (url.pathname === "/api/flaky") { flakyCalls += 1; sendJson(response, flakyCalls === 1 ? 500 : 200, { attempt: flakyCalls }); return; }
+    if (url.pathname === "/api/auth-check") { sendJson(response, request.headers.authorization === "Bearer abcdef" ? 200 : 401, { authorized: request.headers.authorization === "Bearer abcdef" }); return; }
     if (url.pathname === "/api/items") {
       if (request.method === "GET") { sendJson(response, 200, items); return; }
       if (request.method === "POST") { const body = await bodyJson(request); const item = { id: "item_" + nextId++, name: String(body.name || "new item"), completed: Boolean(body.completed) }; items.push(item); sendJson(response, 201, item); return; }
