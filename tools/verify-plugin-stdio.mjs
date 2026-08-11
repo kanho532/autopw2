@@ -2,11 +2,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 const root = path.resolve(import.meta.dirname, "..");
-const sdkRoot = path.join(root, "packages", "codex-plugin-runtime", "node_modules", "@modelcontextprotocol", "sdk", "dist", "esm");
-const { Client } = await import(pathToFileURL(path.join(sdkRoot, "client", "index.js")).href);
-const { StdioClientTransport } = await import(pathToFileURL(path.join(sdkRoot, "client", "stdio.js")).href);
 const todo = await import(pathToFileURL(path.join(root, "apps", "todo-fixture-target", "dist", "index.js")).href);
 const configRoot = fs.mkdtempSync(path.join(os.tmpdir(), "autopw-plugin-stdio-"));
 const workspace = path.join(root, "apps", "todo-fixture-target");
