@@ -150,7 +150,7 @@ export class AuditVerticalSlice {
       const results = { schema_version: "2.1", run_id: run.run_id, gate: gate.gate, audit_status: audit.audit_status, exit_code: gate.exit_code, results_ref: resultRef, summary: { ...audit.summary, coverage: reconciledCoverage }, issues: audit.issues };
       const persistedResultsRef = this.storage.writeArtifact(run.run_id, "results.json", "results.json", JSON.stringify(results, null, 2) + "\n");
       const reportStartedAt = Date.now();
-      const report = writeReport({ storage: this.storage, runId: run.run_id, gate: gate.gate, auditStatus: audit.audit_status, summary: { ...audit.summary, coverage: reconciledCoverage }, issues: audit.issues, resultsRef: persistedResultsRef, planSource, target: target.mode, coverage: coverageRows(planner.requirements, effectiveCaseMap, execution.results), cases: effectivePlan.cases });
+      const report = writeReport({ storage: this.storage, runId: run.run_id, gate: gate.gate, auditStatus: audit.audit_status, summary: { ...audit.summary, coverage: reconciledCoverage }, issues: audit.issues, resultsRef: persistedResultsRef, planSource, target: target.mode, coverage: coverageRows(planner.requirements, effectiveCaseMap, execution.results), coverageMetrics: audit.coverage_metrics, cases: effectivePlan.cases });
       releaseMetrics.report_ms = Date.now() - reportStartedAt;
       releaseMetrics.total_run_ms = Date.now() - runStartedAt;
       this.storage.writeJson(run.run_id, "release-metrics.json", { schema_version: "2.2", engine_modes: this.engineModes, plan_cache_hit: Boolean((planner.audit as Record<string, unknown>).cache_hit), ...releaseMetrics });

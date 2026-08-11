@@ -1,11 +1,10 @@
 {
-  "name": "@autopw/audit",
+  "name": "@autopw/triage",
   "version": "2.1.0-rc5.mcp-first",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
-  "dependencies": { "@autopw/execution": "2.1.0-rc5.mcp-first", "@autopw/triage": "2.1.0-rc5.mcp-first" },
-  "description": "AutoPW audit (Phase 0 stub — not implemented in M0)."
+  "description": "Provenance-aware failure triage for AutoPW."
 }

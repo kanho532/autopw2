@@ -139,10 +139,22 @@ Exit criteria:
 
 ### Phase 6 — Provenance-aware triage, Gate and coverage
 
+Status: implemented in the seventh M11 delivery.
+
+Deliverables:
+
 - Execution emits low-level failure signals and expected/actual context.
 - Triage combines plan origin, evidence strength, oracle strength and phase to classify issues.
 - Report tier coverage separately from discovered-scope coverage.
 - Add generated-case precision, false-product-defect rate, semantic-oracle coverage and cleanup integrity.
+
+Exit criteria:
+
+- Execution classifications remain provisional until provenance-aware triage.
+- Setup, cleanup, contract and unproven-oracle failures cannot become product defects.
+- A high-confidence evidenced test-phase oracle mismatch can become a product defect even for a generated plan.
+- Gate decisions consume triaged classifications.
+- Markdown and HTML reports expose tier, discovered-scope, precision, false-defect, semantic-oracle and cleanup metrics.
 
 ### Phase 7 — Safe live UI exploration
 
