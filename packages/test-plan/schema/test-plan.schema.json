@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://autopw.dev/schemas/test-plan/1.0/test-plan.schema.json",
+  "$id": "https://autopw.dev/schemas/test-plan/test-plan.schema.json",
   "title": "AutoPW Declarative TestPlan",
   "type": "object",
   "additionalProperties": false,
   "required": ["plan_schema", "plan_id", "generated_at", "origin", "coverage_eligible", "cases"],
   "properties": {
-    "plan_schema": {"const": "autopw.test-plan/1.0"},
+    "plan_schema": {"enum": ["autopw.test-plan/1.0", "autopw.test-plan/1.1"]},
     "plan_id": {"type": "string", "pattern": "^[A-Za-z0-9_.:-]+$"},
     "generated_at": {"type": "string", "format": "date-time"},
     "origin": {"$ref": "#/$defs/origin"},
@@ -56,7 +56,7 @@
         {"$ref": "#/$defs/expectText"}, {"$ref": "#/$defs/expectValue"}, {"$ref": "#/$defs/expectCount"}, {"$ref": "#/$defs/expectUrl"},
         {"$ref": "#/$defs/expectChecked"}, {"$ref": "#/$defs/noConsole"}, {"$ref": "#/$defs/expectStatus"}, {"$ref": "#/$defs/expectHeader"},
         {"$ref": "#/$defs/expectJson"}, {"$ref": "#/$defs/expectJsonSchema"}, {"$ref": "#/$defs/setVariable"}, {"$ref": "#/$defs/captureText"},
-        {"$ref": "#/$defs/captureAttribute"}, {"$ref": "#/$defs/captureJson"}
+        {"$ref": "#/$defs/captureAttribute"}, {"$ref": "#/$defs/captureJson"}, {"$ref": "#/$defs/expectRelation"}, {"$ref": "#/$defs/expectCollection"}
       ]
     },
     "noCssStep": {
@@ -88,6 +88,9 @@
     "captureText": {"type": "object", "additionalProperties": false, "required": ["action", "locator", "save_as"], "properties": {"action": {"const": "capture_text"}, "locator": {"$ref": "#/$defs/locator"}, "save_as": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.:-]*$"}}},
     "captureAttribute": {"type": "object", "additionalProperties": false, "required": ["action", "locator", "attribute", "save_as"], "properties": {"action": {"const": "capture_attribute"}, "locator": {"$ref": "#/$defs/locator"}, "attribute": {"type": "string", "minLength": 1}, "save_as": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.:-]*$"}}},
     "captureJson": {"type": "object", "additionalProperties": false, "required": ["action", "source", "save_as"], "properties": {"action": {"const": "capture_json"}, "source": {"type": "string", "minLength": 1}, "path": {"type": "string"}, "save_as": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.:-]*$"}}},
+    "semanticOperand": {"oneOf": [{"type": "object", "additionalProperties": false, "required": ["literal"], "properties": {"literal": {}}}, {"type": "object", "additionalProperties": false, "required": ["source"], "properties": {"source": {"type": "string", "minLength": 1}, "path": {"type": "string"}, "aggregate": {"enum": ["length", "sum"]}}}, {"type": "object", "additionalProperties": false, "required": ["sum"], "properties": {"sum": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/semanticOperand"}}}}]},
+    "expectRelation": {"type": "object", "additionalProperties": false, "required": ["action", "left", "operator", "right"], "properties": {"action": {"const": "expect_relation"}, "left": {"$ref": "#/$defs/semanticOperand"}, "operator": {"enum": ["equals", "not_equals", "greater_than", "greater_or_equal", "less_than", "less_or_equal"]}, "right": {"$ref": "#/$defs/semanticOperand"}}},
+    "expectCollection": {"type": "object", "additionalProperties": false, "required": ["action", "source", "quantifier", "predicate"], "properties": {"action": {"const": "expect_collection"}, "source": {"type": "string", "minLength": 1}, "path": {"type": "string"}, "quantifier": {"enum": ["every", "some", "none"]}, "predicate": {"type": "object", "additionalProperties": false, "required": ["path", "operator"], "properties": {"path": {"type": "string"}, "operator": {"enum": ["equals", "contains", "exists"]}, "value": {}}}}},
     "case": {
       "type": "object", "additionalProperties": false,
       "required": ["case_id", "title", "feature_id", "requirement_refs", "scenario", "priority", "effective_tier", "kind", "risk", "confidence", "execution_policy", "steps"],

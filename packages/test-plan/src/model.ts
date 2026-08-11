@@ -1,4 +1,7 @@
-export const TEST_PLAN_SCHEMA = "autopw.test-plan/1.0" as const;
+export const TEST_PLAN_SCHEMA_V1_0 = "autopw.test-plan/1.0" as const;
+export const TEST_PLAN_SCHEMA_V1_1 = "autopw.test-plan/1.1" as const;
+export const TEST_PLAN_SCHEMA = TEST_PLAN_SCHEMA_V1_0;
+export type TestPlanSchema = typeof TEST_PLAN_SCHEMA_V1_0 | typeof TEST_PLAN_SCHEMA_V1_1;
 
 export type PlanOriginType = "generated" | "manual" | "migrated" | "bootstrap" | "mixed";
 export type CaseOriginType = Exclude<PlanOriginType, "mixed">;
@@ -57,8 +60,13 @@ export interface SetVariableStep { action: "set_variable"; name: string; value: 
 export interface CaptureTextStep { action: "capture_text"; locator: LocatorRef; save_as: string; }
 export interface CaptureAttributeStep { action: "capture_attribute"; locator: LocatorRef; attribute: string; save_as: string; }
 export interface CaptureJsonStep { action: "capture_json"; source: string; path?: string; save_as: string; }
+export interface SemanticValueRef { source: string; path?: string; aggregate?: "length" | "sum"; }
+export type SemanticOperand = SemanticValueRef | { literal: unknown } | { sum: SemanticOperand[] };
+export interface ExpectRelationStep { action: "expect_relation"; left: SemanticOperand; operator: "equals" | "not_equals" | "greater_than" | "greater_or_equal" | "less_than" | "less_or_equal"; right: SemanticOperand; }
+export interface CollectionPredicate { path: string; operator: "equals" | "contains" | "exists"; value?: unknown; }
+export interface ExpectCollectionStep { action: "expect_collection"; source: string; path?: string; quantifier: "every" | "some" | "none"; predicate: CollectionPredicate; }
 
-export type TestStep = GotoStep | ReloadStep | LocatorActionStep | FillStep | PressStep | WaitForStep | ApiRequestStep | ExpectVisibleStep | ExpectTextStep | ExpectValueStep | ExpectCountStep | ExpectUrlStep | ExpectCheckedStep | ExpectNoConsoleErrorsStep | ExpectStatusStep | ExpectHeaderStep | ExpectJsonStep | ExpectJsonSchemaStep | SetVariableStep | CaptureTextStep | CaptureAttributeStep | CaptureJsonStep;
+export type TestStep = GotoStep | ReloadStep | LocatorActionStep | FillStep | PressStep | WaitForStep | ApiRequestStep | ExpectVisibleStep | ExpectTextStep | ExpectValueStep | ExpectCountStep | ExpectUrlStep | ExpectCheckedStep | ExpectNoConsoleErrorsStep | ExpectStatusStep | ExpectHeaderStep | ExpectJsonStep | ExpectJsonSchemaStep | SetVariableStep | CaptureTextStep | CaptureAttributeStep | CaptureJsonStep | ExpectRelationStep | ExpectCollectionStep;
 
 export type FixtureDefinition = Record<string, unknown>;
 
@@ -87,7 +95,7 @@ export interface TestCase {
 }
 
 export interface TestPlan {
-  plan_schema: typeof TEST_PLAN_SCHEMA;
+  plan_schema: TestPlanSchema;
   plan_id: string;
   generated_at: string;
   origin: PlanOrigin;

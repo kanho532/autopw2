@@ -120,10 +120,22 @@ Exit criteria:
 
 ### Phase 5 — Semantic Oracle and TestPlan 1.1
 
+Status: implemented in the sixth M11 delivery.
+
+Deliverables:
+
 - Add safe relation and collection assertions without JavaScript evaluation.
 - Compile refresh, persistence, summary, count and search oracles into semantic assertions.
 - Grant oracle coverage only when the complete oracle specification is compiled and bound.
 - Read TestPlan 1.0 and 1.1; write 1.1 only when new steps are used.
+
+Exit criteria:
+
+- TestPlan 1.0 remains readable and rejects 1.1-only semantic actions.
+- TestPlan 1.1 relation and collection assertions execute through typed operators only.
+- Refresh, persistence, summary, count and search requirements emit semantic steps.
+- Incomplete semantic specifications do not receive oracle bindings or coverage eligibility.
+- Status-only output remains TestPlan 1.0.
 
 ### Phase 6 — Provenance-aware triage, Gate and coverage
 

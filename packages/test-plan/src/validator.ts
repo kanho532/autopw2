@@ -1,6 +1,6 @@
 import { extractVariableReferences } from "./interpolation.js";
 import { AUTOMATIC_LOCATOR_KINDS } from "./locator.js";
-import { TEST_PLAN_SCHEMA, type TestCase, type TestPlan, type TestStep, type ValidationResult } from "./model.js";
+import { TEST_PLAN_SCHEMA_V1_0, TEST_PLAN_SCHEMA_V1_1, type TestCase, type TestPlan, type TestStep, type ValidationResult } from "./model.js";
 import { FORBIDDEN_STEP_ACTIONS, isSupportedStepAction } from "./steps.js";
 
 const ID_PATTERN = /^[A-Za-z0-9_.:-]+$/;
@@ -19,6 +19,7 @@ const ACTION_KEYS: Record<string, string[]> = {
   expect_url: ["action", "path"], expect_checked: ["action", "locator", "checked"], expect_no_console_errors: ["action"],
   expect_status: ["action", "source", "equals"], expect_header: ["action", "source", "name", "equals", "contains"],
   expect_json: ["action", "source", "path", "equals", "exists"], expect_json_schema: ["action", "source", "schema"],
+  expect_relation: ["action", "left", "operator", "right"], expect_collection: ["action", "source", "path", "quantifier", "predicate"],
   set_variable: ["action", "name", "value"], capture_text: ["action", "locator", "save_as"],
   capture_attribute: ["action", "locator", "attribute", "save_as"], capture_json: ["action", "source", "path", "save_as"]
 };
@@ -31,7 +32,7 @@ export function validatePlan(plan: unknown, context: PlanValidationContext = DEF
   const errors: string[] = [];
   if (!isObject(plan)) return { ok: false, errors: ["plan must be an object"] };
   if (!onlyKeys(plan, ["plan_schema", "plan_id", "generated_at", "origin", "coverage_eligible", "target", "fixtures", "cases"])) errors.push("plan has unknown fields");
-  if (plan.plan_schema !== TEST_PLAN_SCHEMA) errors.push("plan_schema must be " + TEST_PLAN_SCHEMA);
+  if (![TEST_PLAN_SCHEMA_V1_0, TEST_PLAN_SCHEMA_V1_1].includes(plan.plan_schema as typeof TEST_PLAN_SCHEMA_V1_0)) errors.push("plan_schema must be a supported TestPlan version");
   requireString(plan, "plan_id", errors, ID_PATTERN, "plan_id");
   if (typeof plan.generated_at !== "string" || !isIsoDate(plan.generated_at)) errors.push("generated_at must be an ISO date-time");
   if (!isPlanOrigin(plan.origin)) errors.push("origin is invalid");
@@ -79,7 +80,7 @@ function validateCase(item: TestCase, plan: Record<string, unknown>, errors: str
   for (const phase of ["setup", "steps", "cleanup"] as const) {
     if (phase === "steps" && (!Array.isArray(item.steps) || item.steps.length === 0)) errors.push(prefix + ": steps must be a non-empty array");
     if (item[phase] !== undefined && !Array.isArray(item[phase])) errors.push(prefix + ": " + phase + " must be an array");
-    if (Array.isArray(item[phase])) validateSteps(item[phase], phase, errors, prefix, bindings, context);
+    if (Array.isArray(item[phase])) validateSteps(item[phase], phase, errors, prefix, bindings, context, String(plan.plan_schema));
   }
 }
 
@@ -100,13 +101,14 @@ function validateOracleBindings(bindings: unknown, requirementRefs: string[], al
   }
 }
 
-function validateSteps(steps: TestStep[], phase: string, errors: string[], prefix: string, bindings: { variables: Set<string>; responses: Set<string>; fixtures: Set<string> }, context: PlanValidationContext): void {
+function validateSteps(steps: TestStep[], phase: string, errors: string[], prefix: string, bindings: { variables: Set<string>; responses: Set<string>; fixtures: Set<string> }, context: PlanValidationContext, planSchema: string): void {
   for (const step of steps) {
     if (!isObject(step) || typeof step.action !== "string") { errors.push(prefix + ": invalid " + phase + " step"); continue; }
     const action = step.action;
     const rawStep = step as unknown as Record<string, unknown>;
     if ((FORBIDDEN_STEP_ACTIONS as readonly string[]).includes(action)) errors.push(prefix + ": forbidden action " + action);
     if (!isSupportedStepAction(action)) { errors.push(prefix + ": unsupported action " + action); continue; }
+    if (["expect_relation", "expect_collection"].includes(action) && planSchema !== TEST_PLAN_SCHEMA_V1_1) errors.push(prefix + ": " + action + " requires TestPlan 1.1");
     if (!onlyKeys(rawStep, ACTION_KEYS[action] || ["action"])) errors.push(prefix + ": unknown field in " + action + " step");
     for (const key of Object.keys(rawStep)) if (FORBIDDEN_PROPERTY_PATTERN.test(key)) errors.push(prefix + ": forbidden step property " + key);
     validateActionShape(action, rawStep, errors, prefix, context);
@@ -141,10 +143,20 @@ function validateActionShape(action: string, step: Record<string, unknown>, erro
   if (action === "expect_header") { required("source"); required("name"); if ((step.equals === undefined) === (step.contains === undefined) || (step.equals !== undefined && typeof step.equals !== "string") || (step.contains !== undefined && typeof step.contains !== "string")) errors.push(prefix + ": expect_header requires exactly one string oracle"); }
   if (action === "expect_json") { required("source"); required("path"); if (step.equals === undefined && typeof step.exists !== "boolean") errors.push(prefix + ": expect_json requires equals or exists"); if (step.equals !== undefined && step.exists !== undefined) errors.push(prefix + ": expect_json cannot combine equals and exists"); }
   if (action === "expect_json_schema") { required("source"); if (!isObject(step.schema) && !Array.isArray(step.schema)) errors.push(prefix + ": expect_json_schema.schema is required"); }
+  if (action === "expect_relation") { if (!isSemanticOperand(step.left) || !isSemanticOperand(step.right)) errors.push(prefix + ": expect_relation operands are invalid"); if (!["equals", "not_equals", "greater_than", "greater_or_equal", "less_than", "less_or_equal"].includes(String(step.operator))) errors.push(prefix + ": expect_relation.operator is invalid"); }
+  if (action === "expect_collection") { required("source"); if (step.path !== undefined && typeof step.path !== "string") errors.push(prefix + ": expect_collection.path must be a string"); if (!["every", "some", "none"].includes(String(step.quantifier))) errors.push(prefix + ": expect_collection.quantifier is invalid"); if (!isCollectionPredicate(step.predicate)) errors.push(prefix + ": expect_collection.predicate is invalid"); }
   if (action === "set_variable") { required("name"); if (!validVariableName(step.name)) errors.push(prefix + ": invalid variable name"); if (step.value === undefined) errors.push(prefix + ": set_variable.value is required"); }
   if (["capture_text", "capture_attribute"].includes(action)) { required("save_as"); if (!validVariableName(step.save_as)) errors.push(prefix + ": invalid capture variable"); if (action === "capture_attribute") required("attribute"); }
   if (action === "capture_json") { required("source"); required("save_as"); if (!validVariableName(step.save_as)) errors.push(prefix + ": invalid capture variable"); if (step.path !== undefined && typeof step.path !== "string") errors.push(prefix + ": capture_json.path must be a string"); }
 }
+
+function isSemanticOperand(value: unknown): boolean {
+  if (!isObject(value)) return false;
+  if (Object.hasOwn(value, "literal")) return onlyKeys(value, ["literal"]);
+  if (Array.isArray(value.sum)) return onlyKeys(value, ["sum"]) && value.sum.length > 0 && value.sum.every(isSemanticOperand);
+  return typeof value.source === "string" && Boolean(value.source) && onlyKeys(value, ["source", "path", "aggregate"]) && (value.path === undefined || typeof value.path === "string") && (value.aggregate === undefined || ["length", "sum"].includes(String(value.aggregate)));
+}
+function isCollectionPredicate(value: unknown): boolean { return isObject(value) && typeof value.path === "string" && ["equals", "contains", "exists"].includes(String(value.operator)) && onlyKeys(value, ["path", "operator", "value"]) && (value.operator === "exists" || Object.hasOwn(value, "value")); }
 
 function validateLocator(locator: unknown, errors: string[], prefix: string, context: PlanValidationContext): void {
   if (!isObject(locator) || typeof locator.by !== "string") { errors.push(prefix + ": locator is invalid"); return; }

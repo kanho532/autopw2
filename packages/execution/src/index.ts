@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import Ajv from "ajv";
 import { chromium, firefox, webkit, type APIResponse, type Browser, type BrowserContext, type BrowserType, type Page } from "playwright";
-import { assertValidPlan, fromFixturePlan, normalizePlan, resolveInterpolation, type EffectiveTier, type LocatorRef, type TestCase, type TestPlan, type TestStep, type PlanValidationContext } from "@autopw/test-plan";
+import { assertValidPlan, fromFixturePlan, normalizePlan, resolveInterpolation, type EffectiveTier, type LocatorRef, type SemanticOperand, type TestCase, type TestPlan, type TestStep, type PlanValidationContext } from "@autopw/test-plan";
 import type { FixturePlan, FixtureVariant } from "@autopw/execution-fixture";
 import type { ArtifactRef } from "@autopw/run-storage";
 import { RunStorage } from "@autopw/run-storage";
@@ -241,6 +241,8 @@ export class PlaywrightPlanRunner {
     if (step.action === "expect_header") { const source = getSource(scopes, step.source); const value = source.headers[String(step.name).toLowerCase()] || source.headers[step.name]; if (step.equals !== undefined && value !== step.equals || step.contains !== undefined && !String(value || "").includes(step.contains)) throw new Error("expect_header failed"); return {}; }
     if (step.action === "expect_json") { const source = getSource(scopes, step.source); const actual = jsonPath(source.body, step.path); if (step.exists !== undefined ? (step.exists !== (actual !== undefined)) : stableValue(actual) !== stableValue(step.equals)) throw new Error("expect_json failed"); return {}; }
     if (step.action === "expect_json_schema") { const source = getSource(scopes, step.source); validateJsonSchema(source.body, step.schema); return {}; }
+    if (step.action === "expect_relation") { const left = semanticValue(step.left, scopes); const right = semanticValue(step.right, scopes); if (!relationMatches(left, step.operator, right)) throw new Error(`expect_relation failed: ${stableValue(left)} ${step.operator} ${stableValue(right)}`); return { summary: { operator: step.operator } }; }
+    if (step.action === "expect_collection") { const source = getSource(scopes, step.source); const collection = step.path ? jsonPath(source.body, step.path) : source.body; if (!Array.isArray(collection)) throw new Error("expect_collection source is not an array"); const matches = collection.map((item) => collectionMatches(item, step.predicate)); const passed = step.quantifier === "every" ? matches.every(Boolean) : step.quantifier === "some" ? matches.some(Boolean) : matches.every((item) => !item); if (!passed) throw new Error(`expect_collection failed: ${step.quantifier}`); return { summary: { count: collection.length, quantifier: step.quantifier } }; }
     if (step.action === "capture_json") { const source = getSource(scopes, step.source); (scopes.variables as Record<string, unknown>)[step.save_as] = step.path ? jsonPath(source.body, step.path) : source.body; return { summary: { name: step.save_as } }; }
     throw Object.assign(new Error("unsupported TestPlan step: " + step.action), { code: "PLAN_STEP_UNSUPPORTED" });
   }
@@ -319,6 +321,17 @@ async function responseValue(response: APIResponse): Promise<Record<string, unkn
 function getSource(scopes: Record<string, unknown>, source: unknown): Record<string, any> { const value = source && typeof source === "object" ? source : typeof source === "string" && source.startsWith("${") ? resolveInterpolation(source, scopes) : typeof source === "string" && source.startsWith("$") ? lookup(scopes.responses, source.slice(1)) : typeof source === "string" && source.startsWith("responses.") ? lookup(scopes.responses, source.slice("responses.".length)) : lookup(scopes.responses, String(source)); if (!value || typeof value !== "object") throw Object.assign(new Error("response source is undefined: " + String(source)), { code: "PLAN_VARIABLE_UNDEFINED" }); return value as Record<string, any>; }
 function lookup(scope: unknown, expression: string): unknown { let value = scope; for (const part of expression.replace(/^\$\{?/, "").replace(/\}?$/, "").split(".").filter(Boolean)) { if (!value || typeof value !== "object" || !(part in (value as Record<string, unknown>))) throw Object.assign(new Error("undefined variable: " + expression), { code: "PLAN_VARIABLE_UNDEFINED" }); value = (value as Record<string, unknown>)[part]; } return value; }
 function jsonPath(value: unknown, expression: string): unknown { return expression.split(".").filter(Boolean).reduce<unknown>((current, part) => { const match = part.match(/^(.+)\[(\d+)\]$/); if (match) return Array.isArray(current) ? current[Number(match[2])] : undefined; return current && typeof current === "object" ? (current as Record<string, unknown>)[part] : undefined; }, value); }
+function semanticValue(operand: SemanticOperand, scopes: Record<string, unknown>): unknown {
+  if ("literal" in operand) return operand.literal;
+  if ("sum" in operand) return operand.sum.reduce((total, item) => total + Number(semanticValue(item, scopes)), 0);
+  const source = getSource(scopes, operand.source);
+  const value = operand.path?.startsWith("$response.") ? jsonPath(source, operand.path.slice("$response.".length)) : operand.path ? jsonPath(source.body, operand.path.replace(/^body\./, "")) : source.body;
+  if (operand.aggregate === "length") return Array.isArray(value) || typeof value === "string" ? value.length : undefined;
+  if (operand.aggregate === "sum") return Array.isArray(value) ? value.reduce((total, item) => total + Number(item), 0) : undefined;
+  return value;
+}
+function relationMatches(left: unknown, operator: string, right: unknown): boolean { if (operator === "equals") return stableValue(left) === stableValue(right); if (operator === "not_equals") return stableValue(left) !== stableValue(right); if (operator === "greater_than") return Number(left) > Number(right); if (operator === "greater_or_equal") return Number(left) >= Number(right); if (operator === "less_than") return Number(left) < Number(right); return Number(left) <= Number(right); }
+function collectionMatches(item: unknown, predicate: { path: string; operator: string; value?: unknown }): boolean { const actual = predicate.path ? jsonPath(item, predicate.path) : item; if (predicate.operator === "exists") return actual !== undefined; if (predicate.operator === "equals") return stableValue(actual) === stableValue(predicate.value); return String(actual ?? "").includes(String(predicate.value ?? "")); }
 function stableValue(value: unknown): string { return JSON.stringify(value, Object.keys((value && typeof value === "object" && !Array.isArray(value)) ? value as object : {}).sort()); }
 const JSON_SCHEMA_VALIDATOR = new Ajv({ allErrors: true, strict: false });
 function validateJsonSchema(value: unknown, schema: unknown): void {
