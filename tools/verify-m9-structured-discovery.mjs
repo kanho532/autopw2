@@ -32,6 +32,14 @@ try {
   check("m9.5-cross-origin-request-is-blocked", result.network.blocked_origins.includes("https://disallowed.example.invalid"));
   check("m9.5-separated-budget-metrics", result.metrics.static_discovery_wall_ms >= 0 && result.metrics.live_discovery_wall_ms >= 0 && result.metrics.correlation_cpu_ms >= 0 && result.metrics.total_discovery_wall_ms >= result.metrics.static_discovery_wall_ms);
 
+  const templateRoot = fs.mkdtempSync(path.join(process.env.TEMP || process.env.TMP || ".", "autopw-m9.5-template-"));
+  try {
+    fs.writeFileSync(path.join(templateRoot, "api.js"), "const BASE = '/api'; const id = 'ignored'; fetch(`${BASE}/items/summary`); fetch(`${BASE}/items`, { method: 'POST' }); fetch(`${BASE}/items/${id}`);");
+    const templated = await discovery.discover({ root: templateRoot, budget: { max_depth: 2, max_files: 10, static_timeout_ms: 3000 } });
+    const endpoints = facts(templated).filter((fact) => fact.fact_type === "endpoint");
+    check("m9.5-resolves-static-template-base", endpoints.some((fact) => fact.method === "POST" && fact.path_template === "/api/items") && endpoints.some((fact) => fact.method === "GET" && fact.path_template === "/api/items/:id") && endpoints.some((fact) => fact.method === "GET" && fact.path_template === "/api/items/summary") && !endpoints.some((fact) => fact.method === "POST" && fact.path_template === "/api/items/summary") && endpoints.every((fact) => !String(fact.path_template).includes("%7B")));
+  } finally { fs.rmSync(templateRoot, { recursive: true, force: true }); }
+
   const repeated = await discovery.discover({ root: projectRoot, budget: { max_depth: 4, max_files: 50, static_timeout_ms: 3000, allowed_origins: [allowedOrigin] } });
   const firstIds = facts(repeated).map((fact) => fact.fact_id).sort();
   const second = await discovery.discover({ root: projectRoot, budget: { max_depth: 4, max_files: 50, static_timeout_ms: 3000, allowed_origins: [allowedOrigin] } });

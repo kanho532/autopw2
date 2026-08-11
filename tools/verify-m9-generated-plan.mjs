@@ -44,6 +44,8 @@ try {
     return items.length > 0 && items.every((item) => item.startsWith(caseId + ":") && generatedSteps.includes(item));
   }));
   check("m9.7-generated-case-count-is-requirement-driven", compiled.plan.cases.length === requirements.filter((item) => !["BLOCKED", "TIER_SKIPPED", "NOT_APPLICABLE"].includes(item.status)).length && compiled.plan.cases.length > 0);
+  check("m9.7-invalid-input-is-fast-tier", compiled.plan.cases.filter((item) => item.scenario === "invalid_input").every((item) => item.effective_tier === "fast"));
+  check("m9.7-discovered-enum-seeds-valid-create-payload", Object.values(catalog.actions).filter((item) => item.method === "POST" && item.requirement_id !== undefined && !item.requirement_id.includes("priority_enum")).every((item) => item.step?.body?.priority === "low"));
   check("m9.7-generated-source-is-safe", !compiled.source.match(/node:|child_process|playwright/i));
   const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "autopw-m9.7-generated-"));
   try {

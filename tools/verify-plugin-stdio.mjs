@@ -64,7 +64,7 @@ try {
   const { client } = await connect(configRoot, "autopw-plugin-verifier");
   try {
     const tools = await client.listTools();
-    check("plugin-stdio-tools-list", ["autopw_status", "derive_coverage", "run_audit", "get_run_status", "get_run_result", "explain_run", "resume_run"].every((name) => tools.tools.some((tool) => tool.name === name)));
+    check("plugin-stdio-tools-list", ["autopw_status", "derive_coverage", "run_audit", "get_run_status", "get_run_result", "export_run_report", "explain_run", "resume_run"].every((name) => tools.tools.some((tool) => tool.name === name)));
     const status = output(await client.callTool({ name: "autopw_status", arguments: { workspace_path: workspace } }));
     check("plugin-stdio-status-resolves-trust", status.trusted === true && status.target_configured === true);
     const accepted = output(await client.callTool({ name: "run_audit", arguments: { workspace_path: workspace, base_tier: "smoke" } }));
@@ -73,6 +73,9 @@ try {
     for (let attempt = 0; attempt < 200; attempt += 1) { result = output(await client.callTool({ name: "get_run_result", arguments: { workspace_path: workspace, run_id: accepted.run_handle } })); if (result.kind === "ok" || result.kind === "failed") break; await new Promise((resolve) => setTimeout(resolve, 100)); }
     const finalStatus = output(await client.callTool({ name: "get_run_status", arguments: { workspace_path: workspace, run_id: accepted.run_handle } }));
     check("plugin-stdio-audit-e2e", result.kind === "ok" && result.gate === "pass" && result.audit_status === "COMPLETE", JSON.stringify({ result, finalStatus }));
+    const exported = output(await client.callTool({ name: "export_run_report", arguments: { workspace_path: workspace, run_id: accepted.run_handle } }));
+    check("plugin-stdio-report-export", exported.kind === "ok" && Object.values(exported.report_paths || {}).every((file) => typeof file === "string" && fs.existsSync(file)) && String(exported.export_dir || "").startsWith(workspace), JSON.stringify(exported));
+    fs.rmSync(path.join(workspace, ".autopw", "reports", accepted.run_handle), { recursive: true, force: true });
   } finally { await client.close(); }
 
   const { client: firstRuntime, transport: firstTransport } = await connect(configRoot, "autopw-plugin-resume-origin");

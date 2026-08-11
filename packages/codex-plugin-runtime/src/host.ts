@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ExternalTargetProvider, type TargetProvider } from "@autopw/core";
@@ -30,6 +31,28 @@ export class AutoPwPluginHost {
     return server.callTool(toolName, request as Record<string, any>);
   }
 
+  exportRunReport(input: JsonObject): JsonObject {
+    const workspacePath = stringValue(input.workspace_path, "workspace_path");
+    const workspace = this.registry.resolve(workspacePath);
+    if (!workspace) throw Object.assign(new Error("workspace is not trusted; run `autopw trust <absolute-path> --target <origin>` first"), { code: "WORKSPACE_NOT_TRUSTED" });
+    const runId = runIdValue(input.run_id);
+    const source = path.join(this.registry.configRoot, "runs", workspace.workspace_id, "runs", runId, "artifacts");
+    const destination = path.join(workspace.realpath, ".autopw", "reports", runId);
+    const artifacts = [["markdown", "report.md"], ["html", "report.html"], ["results", "results.json"]] as const;
+    const paths: Record<string, string> = {};
+    for (const [kind, filename] of artifacts) {
+      const inputFile = path.join(source, filename);
+      if (!fs.existsSync(inputFile) || !fs.statSync(inputFile).isFile()) throw Object.assign(new Error("report artifact is not available for run " + runId), { code: "REPORT_NOT_AVAILABLE" });
+    }
+    fs.mkdirSync(destination, { recursive: true });
+    for (const [kind, filename] of artifacts) {
+      const outputFile = path.join(destination, filename);
+      fs.copyFileSync(path.join(source, filename), outputFile);
+      paths[kind] = outputFile;
+    }
+    return { kind: "ok", run_id: runId, export_dir: destination, report_paths: paths };
+  }
+
   async close(): Promise<void> { await Promise.all([...this.servers.values()].map((server) => server.stop())); this.servers.clear(); }
 
   private serverFor(workspace: TrustedWorkspace): McpServer {
@@ -56,4 +79,5 @@ export class AutoPwPluginHost {
 
 function stringValue(value: unknown, name: string): string { if (typeof value !== "string" || !value.trim()) throw Object.assign(new Error(name + " is required"), { code: "INVALID_INPUT" }); return value; }
 function optionalString(value: unknown): string | undefined { return typeof value === "string" && value.trim() ? value : undefined; }
+function runIdValue(value: unknown): string { const runId = stringValue(value, "run_id"); if (!/^run_[A-Za-z0-9_-]+$/.test(runId)) throw Object.assign(new Error("run_id is invalid"), { code: "INVALID_INPUT" }); return runId; }
 function newClientRequestId(): string { return "plugin_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 10); }

@@ -31,7 +31,7 @@ export function compileTestPlan({ requirements, candidateCatalog, plannerOutput,
     const steps = generated.steps;
     if (steps.length === 0) { unmapped.push({ requirement_id: requirement.requirement_id, reason: "NO_SELECTED_STEPS" }); continue; }
     const kind = steps.some((step) => step.action === "api_request") && steps.some((step) => step.action !== "api_request" && step.action !== "expect_status") ? "hybrid" : steps.some((step) => step.action === "api_request") ? "api" : "ui";
-    const effectiveTier = requirement.priority === "P0" ? "smoke" : requirement.priority === "P1" ? "fast" : "full";
+    const effectiveTier = tierForRequirement(requirement);
     cases.push({ case_id: selection.caseId, origin: { type: "generated", source_ref: "m9.7:planner" }, title: `${requirement.intent} for ${requirement.feature_id}`, feature_id: requirement.feature_id, requirement_refs: [requirement.requirement_id], ...(generated.oracleBindings.length ? { oracle_bindings: [{ requirement_id: requirement.requirement_id, step_refs: generated.oracleBindings.map((value) => value.slice(value.lastIndexOf(":") + 1)) }] } : {}), scenario: validScenario(requirement.scenario), priority: requirement.priority, effective_tier: effectiveTier, kind, risk: requirement.risk, confidence: requirement.confidence, execution_policy: { production_allowed: requirement.risk === "read_only", isolated_fixture_required: requirement.risk !== "read_only" }, ...(generated.setup.length ? { setup: generated.setup } : {}), steps, ...(generated.cleanup.length ? { cleanup: generated.cleanup } : {}) });
     requirementCaseMap[requirement.requirement_id] = [selection.caseId];
     if (generated.oracleBindings.length > 0) requirementOracleMap[requirement.requirement_id] = generated.oracleBindings;
@@ -61,33 +61,34 @@ function buildRequirementExecution(requirement: RequirementLike, caseId: string,
   const cleanup: TestStep[] = [];
   const steps: TestStep[] = [];
   const primaryApi = primary.action === "api_request" ? primary : undefined;
+  const fixturePriority = priorityForFeature(catalog, requirement.feature_id);
   const collectionPath = primaryApi ? collectionPathFor(primaryApi, catalog) : "/";
   const setupResponse = "setup_" + safeRequirement;
   const setupSecondaryResponse = "setup_secondary_" + safeRequirement;
   const idPath = `${collectionPath}/\${responses.${setupResponse}.body.id}`;
   const needsItem = ["route_detail", "completed_state", "update_persists", "delete_removes_entity"].includes(requirement.intent);
   if (needsItem) {
-    setup.push({ action: "api_request", method: "POST", path: collectionPath, body: { title: "AutoPW fixture", priority: "normal" }, save_as: setupResponse });
+    setup.push({ action: "api_request", method: "POST", path: collectionPath, body: { title: "AutoPW fixture", priority: fixturePriority }, save_as: setupResponse });
     if (primaryApi) primaryApi.path = idPath;
     cleanup.push({ action: "api_request", method: "DELETE", path: idPath });
   }
   if (requirement.intent === "create_succeeds") cleanup.push({ action: "api_request", method: "DELETE", path: `${collectionPath}/\${responses.${responseName}.body.id}` });
   if (requirement.intent === "search_filters_results") {
-    setup.push({ action: "api_request", method: "POST", path: collectionPath, body: { title: "AutoPW", priority: "normal" }, save_as: setupResponse });
-    setup.push({ action: "api_request", method: "POST", path: collectionPath, body: { title: "OtherPW", priority: "normal" }, save_as: setupSecondaryResponse });
+    setup.push({ action: "api_request", method: "POST", path: collectionPath, body: { title: "AutoPW", priority: fixturePriority }, save_as: setupResponse });
+    setup.push({ action: "api_request", method: "POST", path: collectionPath, body: { title: "OtherPW", priority: fixturePriority }, save_as: setupSecondaryResponse });
     cleanup.push({ action: "api_request", method: "DELETE", path: `${collectionPath}/\${responses.${setupResponse}.body.id}` });
     cleanup.push({ action: "api_request", method: "DELETE", path: `${collectionPath}/\${responses.${setupSecondaryResponse}.body.id}` });
   }
   if (requirement.intent === "summary_is_consistent") {
-    setup.push({ action: "api_request", method: "POST", path: collectionPath, body: { title: "AutoPW fixture", priority: "normal" }, save_as: setupResponse });
+    setup.push({ action: "api_request", method: "POST", path: collectionPath, body: { title: "AutoPW fixture", priority: fixturePriority }, save_as: setupResponse });
     setup.push({ action: "api_request", method: "PATCH", path: `${collectionPath}/\${responses.${setupResponse}.body.id}`, body: { completed: true }, save_as: "setup_completed_" + safeRequirement });
-    setup.push({ action: "api_request", method: "POST", path: collectionPath, body: { title: "AutoPW open", priority: "normal" }, save_as: setupSecondaryResponse });
+    setup.push({ action: "api_request", method: "POST", path: collectionPath, body: { title: "AutoPW open", priority: fixturePriority }, save_as: setupSecondaryResponse });
     cleanup.push({ action: "api_request", method: "DELETE", path: `${collectionPath}/\${responses.${setupResponse}.body.id}` });
     cleanup.push({ action: "api_request", method: "DELETE", path: `${collectionPath}/\${responses.${setupSecondaryResponse}.body.id}` });
   }
   if (requirement.intent === "count_consistent") {
-    setup.push({ action: "api_request", method: "POST", path: collectionPath, body: { title: "AutoPW first", priority: "normal" }, save_as: setupResponse });
-    setup.push({ action: "api_request", method: "POST", path: collectionPath, body: { title: "AutoPW second", priority: "normal" }, save_as: setupSecondaryResponse });
+    setup.push({ action: "api_request", method: "POST", path: collectionPath, body: { title: "AutoPW first", priority: fixturePriority }, save_as: setupResponse });
+    setup.push({ action: "api_request", method: "POST", path: collectionPath, body: { title: "AutoPW second", priority: fixturePriority }, save_as: setupSecondaryResponse });
     cleanup.push({ action: "api_request", method: "DELETE", path: `${collectionPath}/\${responses.${setupResponse}.body.id}` });
     cleanup.push({ action: "api_request", method: "DELETE", path: `${collectionPath}/\${responses.${setupSecondaryResponse}.body.id}` });
   }
@@ -109,7 +110,7 @@ function buildRequirementExecution(requirement: RequirementLike, caseId: string,
   const hasCandidateOracle = selectedExpectations.some((id) => Boolean(catalog.expectations[id]));
   const expectedStatus = typeof requirement.oracle?.details?.status === "number" ? Number(requirement.oracle.details.status) : ["required_field_rejected", "enum_validation"].includes(requirement.intent) ? 400 : 200;
   appendAssertion({ action: "expect_status", source: `responses.${responseName}`, equals: expectedStatus });
-  if (requirement.intent === "create_succeeds") appendAssertion({ action: "expect_json", source: `responses.refresh_${safeRequirement}`, path: "0.title", equals: "AutoPW generated" });
+  if (requirement.intent === "create_succeeds") appendAssertion({ action: "expect_json", source: `responses.${responseName}`, path: "title", equals: "AutoPW generated" });
   if (requirement.intent === "route_detail") appendAssertion({ action: "expect_json", source: `responses.${responseName}`, path: "id", exists: true });
   if (requirement.intent === "completed_state") appendAssertion({ action: "expect_json", source: `responses.reread_${safeRequirement}`, path: "completed", equals: true });
   if (requirement.intent === "update_persists") appendAssertion({ action: "expect_json", source: `responses.reread_${safeRequirement}`, path: "title", equals: "AutoPW updated" });
@@ -123,9 +124,10 @@ function buildRequirementExecution(requirement: RequirementLike, caseId: string,
     appendAssertion({ action: "expect_json", source: `responses.${responseName}`, path: "1", exists: false });
   }
   if (requirement.intent === "summary_is_consistent") {
-    appendAssertion({ action: "expect_json", source: `responses.${responseName}`, path: "total", equals: 2 });
-    appendAssertion({ action: "expect_json", source: `responses.${responseName}`, path: "open", equals: 1 });
-    appendAssertion({ action: "expect_json", source: `responses.${responseName}`, path: "completed", equals: 1 });
+    // Discovery cannot safely establish that an external target starts empty. Assert the
+    // observed summary contract without treating pre-existing user/seed data as a defect.
+    appendAssertion({ action: "expect_json", source: `responses.${responseName}`, path: "total", exists: true });
+    appendAssertion({ action: "expect_json", source: `responses.${responseName}`, path: "completed", exists: true });
   }
   if (requirement.intent === "count_consistent") {
     appendAssertion({ action: "expect_json", source: `responses.${responseName}`, path: "count", equals: 2 });
@@ -143,6 +145,19 @@ function collectionPathFor(primary: Extract<TestStep, { action: "api_request" }>
   const createEndpoint = Object.values(catalog.endpoints).find((item) => item.method === "POST" && typeof item.path === "string" && !item.path.includes(":id"));
   if (createEndpoint?.path) return String(createEndpoint.path).split("?")[0] || "/";
   return primaryPath || "/";
+}
+function tierForRequirement(requirement: RequirementLike): "smoke" | "fast" | "full" {
+  if (requirement.priority === "P2") return "full";
+  if (requirement.priority === "P1") return "fast";
+  return ["invalid_input", "empty_state", "boundary"].includes(requirement.scenario) ? "fast" : "smoke";
+}
+function priorityForFeature(catalog: CandidateCatalog, featureId: string): string {
+  for (const action of Object.values(catalog.actions)) {
+    if (action.feature_id !== featureId || !action.step || typeof action.step.body !== "object" || action.step.body === null) continue;
+    const priority = (action.step.body as Record<string, unknown>).priority;
+    if (typeof priority === "string" && priority !== "unsupported") return priority;
+  }
+  return "normal";
 }
 
 export function assertSafeGeneratedSource(source: string): void {

@@ -28,7 +28,9 @@ export function buildCandidateCatalog({ discovery, requirements, manualOverlay =
     const endpoint = endpointFact ? addEndpoint(catalog, endpointFact, requirement, caseId, routeId) : undefined;
     const locator = controlFact ? addLocator(catalog, controlFact, requirement, caseId, routeId) : undefined;
     const actionId = "act_" + safeId(requirement.requirement_id);
-    const actionStep = createActionStep(requirement, endpoint, route);
+    const validationFacts = related.filter((fact) => fact.fact_type === "validation");
+    const featureValidationFacts = facts.filter((fact) => fact.fact_type === "validation" && fact.feature_id === requirement.feature_id);
+    const actionStep = createActionStep(requirement, endpoint, route, priorityValue(validationFacts.length ? validationFacts : featureValidationFacts));
     const action = candidate({ id: actionId, kind: "action", requirement, caseId, route_id: routeId, locator_id: locator?.id, endpoint_id: endpoint?.id, action: String(actionStep.action), step: actionStep, source: endpoint ? "discovery" : "rule" });
     catalog.actions[actionId] = action;
     const expectationId = "exp_" + safeId(requirement.requirement_id);
@@ -86,13 +88,20 @@ function selectEndpointFact(requirement: PlannerRequirementLike, candidates: Arr
   }
 }
 
-function createActionStep(requirement: PlannerRequirementLike, endpoint: PlannerCandidate | undefined, route: string): Record<string, unknown> {
+function createActionStep(requirement: PlannerRequirementLike, endpoint: PlannerCandidate | undefined, route: string, priority: string): Record<string, unknown> {
   if (!endpoint) return { action: "goto", path: safePath(route) };
   const method = endpoint.method || "GET";
   const step: Record<string, unknown> = { action: "api_request", method, path: endpoint.path || "/", save_as: "response_" + safeId(requirement.requirement_id) };
-  if (method === "POST") step.body = requirement.intent === "required_field_rejected" ? { priority: "normal" } : requirement.intent === "enum_validation" ? { title: "AutoPW", priority: "unsupported" } : { title: "AutoPW generated", priority: "normal" };
-  if (method === "PATCH") step.body = { title: "AutoPW updated", completed: true, priority: "normal" };
+  if (method === "POST") step.body = requirement.intent === "required_field_rejected" ? { priority } : requirement.intent === "enum_validation" ? { title: "AutoPW", priority: "unsupported" } : { title: "AutoPW generated", priority };
+  if (method === "PATCH") step.body = { title: "AutoPW updated", completed: true, priority };
   return step;
+}
+function priorityValue(facts: Array<Record<string, unknown>>): string {
+  for (const fact of facts) if (fact.rule === "enum" && Array.isArray(fact.values)) {
+    const value = fact.values.find((item) => typeof item === "string" && item.trim());
+    if (typeof value === "string") return value;
+  }
+  return "normal";
 }
 
 function createExpectationStep(requirement: PlannerRequirementLike, endpoint: PlannerCandidate | undefined, locator: PlannerCandidate | undefined): Record<string, unknown> {
@@ -103,7 +112,7 @@ function createExpectationStep(requirement: PlannerRequirementLike, endpoint: Pl
 }
 
 function candidate({ id, kind, requirement, caseId, ...fields }: { id: string; kind: PlannerCandidate["kind"]; requirement: PlannerRequirementLike; caseId: string } & Partial<PlannerCandidate>): PlannerCandidate {
-  return { id, kind, case_id: caseId, requirement_id: requirement.requirement_id, scenario: requirement.scenario, confidence: requirement.confidence, risk: requirement.risk, ...fields };
+  return { id, kind, case_id: caseId, requirement_id: requirement.requirement_id, feature_id: requirement.feature_id, scenario: requirement.scenario, confidence: requirement.confidence, risk: requirement.risk, ...fields };
 }
 function concretePath(value: string, intent: string): string { const path = value.replace(/:id/g, intent === "not_found_semantics" ? "missing-task" : "task_generated").replace(/:query/g, "AutoPW"); return safePath(path); }
 function safePath(value: string): string { const path = value.startsWith("/") ? value : "/" + value; return path.replace(/[^A-Za-z0-9_./?=&:%{}$-]/g, "_"); }
