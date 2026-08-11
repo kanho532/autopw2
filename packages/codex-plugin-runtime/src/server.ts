@@ -5,6 +5,7 @@ export { WorkspaceTrustRegistry } from "./workspace-registry.js";
 
 const workspace = { workspace_path: z.string().describe("Absolute path to a workspace previously trusted with the autopw CLI.") };
 const run = { ...workspace, run_id: z.string() };
+const resumableRun = { ...run, client_request_id: z.string().optional().describe("Optional idempotency key preserved when retrying the same resume request.") };
 const operation = { ...workspace, operation_id: z.string() };
 
 export function createPluginServer(host = new AutoPwPluginHost()): McpServer {
@@ -17,7 +18,7 @@ export function createPluginServer(host = new AutoPwPluginHost()): McpServer {
   server.registerTool("get_run_status", { title: "Get audit run status", description: "Poll an AutoPW audit run.", inputSchema: run, annotations: readOnly() }, async (input) => call(host, "get_run_status", input));
   server.registerTool("get_run_result", { title: "Get audit run result", description: "Read a completed AutoPW audit result and report handles.", inputSchema: run, annotations: readOnly() }, async (input) => call(host, "get_run_result", input));
   server.registerTool("explain_run", { title: "Explain audit run", description: "Explain cases, failures, and evidence for a completed audit run.", inputSchema: { ...run, focus_case_id: z.string().optional() }, annotations: readOnly() }, async (input) => call(host, "explain_run", input));
-  server.registerTool("resume_run", { title: "Resume audit run", description: "Resume an interrupted trusted audit run.", inputSchema: run, annotations: mutating() }, async (input) => call(host, "resume_run", input));
+  server.registerTool("resume_run", { title: "Resume audit run", description: "Resume an interrupted trusted audit run. Provide client_request_id when retrying the same request.", inputSchema: resumableRun, annotations: mutating() }, async (input) => call(host, "resume_run", input));
   server.registerTool("cancel_run", { title: "Cancel audit run", description: "Request cancellation for an active trusted audit run.", inputSchema: run, annotations: mutating() }, async (input) => call(host, "cancel_run", input));
   server.registerTool("cleanup_run", { title: "Cleanup audit run", description: "Delete retained artifacts for a trusted audit run.", inputSchema: run, annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false } }, async (input) => call(host, "cleanup_run", input));
   return server;

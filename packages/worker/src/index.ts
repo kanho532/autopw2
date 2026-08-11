@@ -366,15 +366,24 @@ export class FixtureWorker {
     if (run.resume_attempts >= 3) { this._finalizeResumeExhausted(run); return false; }
     const now = Date.now();
     const alive = run.lease.owner ? ACTIVE_WORKER_IDS.has(run.lease.owner) : false;
-    const observedVersion = run.lease.state_version;
-    run.lease = observeLease(run.lease, now, { alive });
+    const observationExpectedVersion = run.lease.state_version;
+    const observed = observeLease(run.lease, now, { alive });
+    if (!this._commitLeaseObservation(run, observed, observationExpectedVersion)) return false;
     if (!isLeaseStale(run.lease, now, { alive })) return false;
+    const takeoverExpectedVersion = run.lease.state_version;
     const next = takeoverLease(run.lease, this.workerId, process.pid, now, { alive });
     if (!next) return false;
-    if (!this._commitTakeover(run, next, observedVersion)) return false;
+    if (!this._commitTakeover(run, next, takeoverExpectedVersion)) return false;
     this.crashedRuns.delete(run.run_id);
     run.lease_owner = this.workerId; run.leased_by = process.pid; run.run_status = "ACTIVE"; run.resume_attempts += 1; run.next_action = "resumed by " + this.workerId; this._persistRun(run, "RUNNING");
     return true;
+  }
+
+  private _commitLeaseObservation(run: RunState, observed: RunLease, expectedVersion: number): boolean {
+    if (!this.runtime) { run.lease = observed; return true; }
+    const committed = this.runtime.storage.compareAndSwapJson<RunState>(run.run_id, "run_state.json", expectedVersion, (current) => ({ ...current, lease: observed }));
+    if (!committed) return false;
+    Object.assign(run, committed); return true;
   }
 
   private _commitTakeover(run: RunState, next: RunLease, expectedVersion: number): boolean {

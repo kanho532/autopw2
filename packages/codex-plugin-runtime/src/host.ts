@@ -46,12 +46,14 @@ export class AutoPwPluginHost {
 
   private internalRequest(toolName: string, workspace: TrustedWorkspace, input: JsonObject): JsonObject {
     const base: JsonObject = { schema_version: "2.1", workspace_id: workspace.workspace_id };
-    if (toolName === "run_audit" || toolName === "derive_coverage") return { ...base, client_request_id: "plugin_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 10), project_subpath: optionalString(input.project_subpath) || ".", profile_path: workspace.profile_path, ...(toolName === "run_audit" ? { base_tier: optionalString(input.base_tier) || "fast" } : { tier: optionalString(input.tier) || "fast", diff_ref: optionalString(input.diff_ref) || "NOOP" }) };
+    if (toolName === "run_audit" || toolName === "derive_coverage") return { ...base, client_request_id: newClientRequestId(), project_subpath: optionalString(input.project_subpath) || ".", profile_path: workspace.profile_path, ...(toolName === "run_audit" ? { base_tier: optionalString(input.base_tier) || "fast" } : { tier: optionalString(input.tier) || "fast", diff_ref: optionalString(input.diff_ref) || "NOOP" }) };
     if (toolName === "get_operation_status" || toolName === "get_operation_result") return { ...base, operation_id: stringValue(input.operation_id, "operation_id") };
-    if (["get_run_status", "get_run_result", "explain_run", "resume_run", "cancel_run", "cleanup_run"].includes(toolName)) return { ...base, run_id: stringValue(input.run_id, "run_id"), ...(optionalString(input.focus_case_id) ? { focus_case_id: optionalString(input.focus_case_id) } : {}) };
+    if (toolName === "resume_run") return { ...base, client_request_id: optionalString(input.client_request_id) || newClientRequestId(), run_id: stringValue(input.run_id, "run_id") };
+    if (["get_run_status", "get_run_result", "explain_run", "cancel_run", "cleanup_run"].includes(toolName)) return { ...base, run_id: stringValue(input.run_id, "run_id"), ...(optionalString(input.focus_case_id) ? { focus_case_id: optionalString(input.focus_case_id) } : {}) };
     throw Object.assign(new Error("unsupported plugin tool: " + toolName), { code: "PLUGIN_TOOL_UNSUPPORTED" });
   }
 }
 
 function stringValue(value: unknown, name: string): string { if (typeof value !== "string" || !value.trim()) throw Object.assign(new Error(name + " is required"), { code: "INVALID_INPUT" }); return value; }
 function optionalString(value: unknown): string | undefined { return typeof value === "string" && value.trim() ? value : undefined; }
+function newClientRequestId(): string { return "plugin_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 10); }
