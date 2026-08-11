@@ -11,6 +11,7 @@ export interface PlannerRequirementLike {
   confidence: number;
   status: string;
   oracle: { kind: string; assertion: string; details?: Record<string, unknown> } | null;
+  payload_strategy?: { valid_payload?: Record<string, unknown>; invalid_payload?: Record<string, unknown>; boundary_payloads?: Record<string, unknown>[] };
 }
 export interface DiscoveryLike { observations: Array<Record<string, unknown>>; candidates?: Array<Record<string, unknown>>; }
 
@@ -92,8 +93,9 @@ function createActionStep(requirement: PlannerRequirementLike, endpoint: Planner
   if (!endpoint) return { action: "goto", path: safePath(route) };
   const method = endpoint.method || "GET";
   const step: Record<string, unknown> = { action: "api_request", method, path: endpoint.path || "/", save_as: "response_" + safeId(requirement.requirement_id) };
-  if (method === "POST") step.body = requirement.intent === "required_field_rejected" ? { priority } : requirement.intent === "enum_validation" ? { title: "AutoPW", priority: "unsupported" } : { title: "AutoPW generated", priority };
-  if (method === "PATCH") step.body = { title: "AutoPW updated", completed: true, priority };
+  const synthesized = requirement.intent === "boundary_rejected" ? requirement.payload_strategy?.boundary_payloads?.[0] : ["required_field_rejected", "enum_validation"].includes(requirement.intent) ? requirement.payload_strategy?.invalid_payload : requirement.payload_strategy?.valid_payload;
+  if (method === "POST") step.body = synthesized || (requirement.intent === "required_field_rejected" ? { priority } : requirement.intent === "enum_validation" ? { title: "AutoPW", priority: "unsupported" } : { title: "AutoPW generated", priority });
+  if (method === "PATCH" || method === "PUT") step.body = synthesized || { title: "AutoPW updated", completed: true, priority };
   return step;
 }
 function priorityValue(facts: Array<Record<string, unknown>>): string {

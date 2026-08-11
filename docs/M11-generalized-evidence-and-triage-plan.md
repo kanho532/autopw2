@@ -100,11 +100,23 @@ Exit criteria:
 
 ### Phase 4 — Schema-driven payload and fixture synthesis
 
+Status: implemented in the fifth M11 delivery.
+
+Deliverables:
+
 - Generate deterministic valid, invalid and boundary values from schemas.
 - Resolve identity from response schemas, Location headers or explicit mappings.
 - Forbid catalog-wide fallback to the first POST endpoint.
 - Require fixture create/read/update/delete operations to belong to the same graph resource.
 - Use explicit seed/manual fixtures for resources without a create operation; otherwise block.
+
+Exit criteria:
+
+- Repeated synthesis produces byte-for-byte identical payload and fixture contracts.
+- Required, enum, string and numeric constraints produce independently selectable invalid or boundary variants.
+- Response-body and `Location` identities compile without assuming a global `body.id` convention.
+- Multi-resource compilation contains zero cross-resource fixture bindings.
+- Read-only resources remain blocked until an explicit seed/manual fixture is supplied.
 
 ### Phase 5 — Semantic Oracle and TestPlan 1.1
 

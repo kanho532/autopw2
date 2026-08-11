@@ -77,7 +77,7 @@ try {
   const ordersResource = built.graph.nodes.resources.find((item) => item.collection_path === "/api/orders");
   check("m11.3-user-fields-bind-only-to-users", built.graph.nodes.fields.filter((item) => item.resource_id).every((field) => field.resource_id === usersResource?.id) && !built.graph.nodes.fields.some((field) => field.resource_id === ordersResource?.id));
   const ordersCreate = requirements.find((item) => item.resource_id === ordersResource?.id && operationById.get(item.operation_id)?.method === "POST");
-  check("m11.3-unproven-payload-or-fixture-is-blocked", ordersCreate?.status === "BLOCKED" && ["PAYLOAD_SYNTHESIS_PENDING", "MISSING_RESOURCE_FIXTURE_OPERATION"].includes(ordersCreate.reason));
+  check("m11.3-unproven-payload-or-fixture-is-blocked", ordersCreate?.status === "BLOCKED" && ["MISSING_REQUEST_SCHEMA", "MISSING_SCHEMA_FIELDS", "MISSING_RESOURCE_FIXTURE_OPERATION"].includes(ordersCreate.reason));
   check("m11.3-read-contract-with-declared-oracle-remains-required", requirements.some((item) => item.resource_id === ordersResource?.id && item.intent === "route_loads" && item.status === "REQUIRED" && item.oracle_specification.proven));
   check("m11.3-workflow-without-oracle-is-explicitly-blocked", requirements.some((item) => item.workflow_id && item.status === "BLOCKED" && item.reason === "MISSING_WORKFLOW_ORACLE"));
   const repeated = derivation.deriveRequirements({ discovery, application_graph: built.graph, evidence: built.evidence, tier: "full", destructive_allowed: true });

@@ -165,7 +165,7 @@ function validateLocator(locator: unknown, errors: string[], prefix: string, con
 
 function validateRelativePath(value: string, prefix: string, errors: string[]): void { if (!isSafeRelativePath(value)) errors.push(prefix + ": unsafe URL/path"); }
 function validateProjectPath(value: unknown, errors: string[]): void { if (typeof value !== "string" || !value || HTTP_PATTERN.test(value) || value.startsWith("/") || !/^(?:\.|[A-Za-z0-9_.-])[A-Za-z0-9_./-]*$/.test(value) || hasParentSegment(value)) errors.push("target.base_path is unsafe"); }
-function isSafeRelativePath(value: string): boolean { return Boolean(value) && !HTTP_PATTERN.test(value) && SAFE_PATH_PATTERN.test(value) && !hasParentSegment(value); }
+function isSafeRelativePath(value: string): boolean { if (/^\$\{responses\.[A-Za-z0-9_.:-]+\.headers\.location\}$/.test(value)) return true; return Boolean(value) && !HTTP_PATTERN.test(value) && SAFE_PATH_PATTERN.test(value) && !hasParentSegment(value); }
 function hasParentSegment(value: string): boolean { return value.split("/").some((segment) => segment === ".."); }
 function validVariableName(value: unknown): value is string { return typeof value === "string" && VARIABLE_NAME_PATTERN.test(value); }
 function isIsoDate(value: string): boolean { return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value) && !Number.isNaN(Date.parse(value)); }

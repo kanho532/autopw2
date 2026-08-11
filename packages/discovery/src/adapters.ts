@@ -36,7 +36,7 @@ function extractOpenApi(input: StaticAdapterInput, document: Record<string, unkn
       endpoints.push(adapterFact("endpoint", [input.relative, method, pathTemplate, operationId].join("|"), {
         method, path_template: normalizeEndpoint(pathTemplate), route: normalizeEndpoint(pathTemplate), operation: operationKind(method, pathTemplate),
         operation_id: operationId || undefined, feature_id: featureId, adapter: "openapi", request_schema_ref: requestSchemaReference(operationValue),
-        response_schema_refs: responseSchemaRefs, response_statuses: responseStatuses(operationValue), source_kind: "OPENAPI", confidence: 0.99, source_ref: { path: input.relative }
+        response_schema_refs: responseSchemaRefs, response_statuses: responseStatuses(operationValue), identity_candidates: responseIdentityCandidates(operationValue, document), source_kind: "OPENAPI", confidence: 0.99, source_ref: { path: input.relative }
       }));
       if (requestSchema) facts.push(...schemaFacts(input.relative, requestSchema, featureId, normalizeEndpoint(pathTemplate), "OPENAPI", 0.99, document));
     }
@@ -209,11 +209,47 @@ function schemaFacts(relative: string, schemaInput: Record<string, unknown>, fea
   for (const [field, rawProperty] of Object.entries(schema.properties).sort(([a], [b]) => a.localeCompare(b))) {
     const property = isRecord(rawProperty) ? resolveSchema(rawProperty, document) || rawProperty : {};
     const common = { field, feature_id: featureId, resource_path: collectionPath(resourcePath), route: resourcePath, source_kind: sourceKind, confidence, source_ref: { path: relative } };
+    result.push(adapterFact("field", [relative, resourcePath, field, "schema"].join("|"), {
+      ...common,
+      schema_type: stringValue(property.type) || inferSchemaType(property),
+      ...(Object.hasOwn(property, "example") ? { example: property.example } : {}),
+      ...(Object.hasOwn(property, "default") ? { default: property.default } : {})
+    }));
     if (required.has(field)) result.push(adapterFact("validation", [relative, resourcePath, field, "required"].join("|"), { ...common, rule: "required" }));
     if (Array.isArray(property.enum)) result.push(adapterFact("validation", [relative, resourcePath, field, "enum"].join("|"), { ...common, rule: "enum", values: property.enum }));
     for (const rule of CONSTRAINTS) if (Object.hasOwn(property, rule)) result.push(adapterFact("validation", [relative, resourcePath, field, rule].join("|"), { ...common, rule, value: property[rule] }));
   }
   return result;
+}
+
+function responseIdentityCandidates(operation: Record<string, unknown>, document: Record<string, unknown>): Array<Record<string, string>> {
+  const explicitPath = stringValue(operation["x-autopw-identity-path"]);
+  const explicitHeader = stringValue(operation["x-autopw-identity-header"]);
+  const result: Array<Record<string, string>> = [];
+  if (explicitPath) result.push({ kind: "explicit", path: explicitPath.replace(/^body\./, "") });
+  if (explicitHeader) result.push({ kind: "explicit", header: explicitHeader.toLowerCase() });
+  if (!isRecord(operation.responses)) return result;
+  for (const responseValue of Object.values(operation.responses)) {
+    if (!isRecord(responseValue)) continue;
+    const response = resolveSchema(responseValue, document) || responseValue;
+    if (isRecord(response.headers) && Object.keys(response.headers).some((name) => name.toLowerCase() === "location")) result.push({ kind: "location_header", header: "location" });
+    if (!isRecord(response.content)) continue;
+    for (const media of Object.values(response.content)) {
+      if (!isRecord(media) || !isRecord(media.schema)) continue;
+      const schema = resolveSchema(media.schema, document) || media.schema;
+      if (isRecord(schema.properties)) {
+        const identity = ["id", "uuid", "key"].find((name) => Object.hasOwn(schema.properties as Record<string, unknown>, name));
+        if (identity) result.push({ kind: "response_body", path: identity });
+      }
+    }
+  }
+  return [...new Map(result.map((item) => [JSON.stringify(item), item])).values()];
+}
+
+function inferSchemaType(property: Record<string, unknown>): string {
+  if (Array.isArray(property.enum) && property.enum.length) return typeof property.enum[0];
+  if (typeof property.minimum === "number" || typeof property.maximum === "number") return "number";
+  return "string";
 }
 
 function resolveRequestSchema(operation: Record<string, unknown>, document: Record<string, unknown>): Record<string, unknown> | undefined {
@@ -291,7 +327,7 @@ function inlineScriptLiterals(sourceFile: ts.SourceFile): Array<{ pos: number; t
 function propertyAccessName(node: ts.Expression): string { return ts.isPropertyAccessExpression(node) ? node.name.text : ""; }
 function isEquality(kind: ts.SyntaxKind): boolean { return kind === ts.SyntaxKind.EqualsEqualsEqualsToken || kind === ts.SyntaxKind.EqualsEqualsToken; }
 function operationKind(method: string, endpoint: string): string { if (/summary/i.test(endpoint)) return "summary"; if (/count/i.test(endpoint)) return "count"; if (/\?.*(?:q|query|search)=/i.test(endpoint)) return "search"; return ({ GET: "read", POST: "create", PUT: "update", PATCH: "update", DELETE: "delete", OPTIONS: "cors" } as Record<string, string>)[method] || method.toLowerCase(); }
-function normalizeEndpoint(endpoint: string): string { try { const url = new URL(endpoint, "http://discovery.invalid"); return ((url.pathname.replace(/\{([^}]+)\}/g, ":$1").replace(/\/$/, "") || "/") + url.search.replace(/%20/g, " ")); } catch { return (endpoint || "/").replace(/\{([^}]+)\}/g, ":$1"); } }
+function normalizeEndpoint(endpoint: string): string { try { const url = new URL(endpoint, "http://discovery.invalid"); return ((decodeURIComponent(url.pathname).replace(/\{([^}]+)\}/g, ":$1").replace(/\/$/, "") || "/") + url.search.replace(/%20/g, " ")); } catch { return (endpoint || "/").replace(/\{([^}]+)\}/g, ":$1"); } }
 function collectionPath(value: string): string { return normalizeEndpoint(value).replace(/\?.*$/, "").replace(/\/:([^/]+).*$/, "") || "/"; }
 function featureFromPath(value: string): string { const segments = value.replace(/\?.*$/, "").split("/").filter(Boolean); return ([...segments].reverse().find((segment) => !segment.startsWith(":")) || path.basename(value, path.extname(value)) || "project_root").replace(/[^A-Za-z0-9_.:-]+/g, "_"); }
 function scriptKind(relative: string): ts.ScriptKind { if (/\.tsx$/i.test(relative)) return ts.ScriptKind.TSX; if (/\.jsx$/i.test(relative)) return ts.ScriptKind.JSX; if (/\.[cm]?js$/i.test(relative)) return ts.ScriptKind.JS; return ts.ScriptKind.TS; }

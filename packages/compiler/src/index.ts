@@ -3,7 +3,7 @@ import type { FixturePlan } from "@autopw/execution-fixture";
 import { assertValidPlan, type TestPlan, type TestStep } from "@autopw/test-plan";
 import type { CandidateCatalog, PlannerOutput } from "@autopw/planner";
 
-export interface RequirementLike { requirement_id: string; feature_id: string; intent: string; scenario: string; priority: "P0" | "P1" | "P2"; risk: "read_only" | "mutating" | "destructive"; confidence: number; status: string; oracle: { kind: string; assertion: string; details?: Record<string, unknown> } | null; }
+export interface RequirementLike { requirement_id: string; feature_id: string; intent: string; scenario: string; priority: "P0" | "P1" | "P2"; risk: "read_only" | "mutating" | "destructive"; confidence: number; status: string; oracle: { kind: string; assertion: string; details?: Record<string, unknown> } | null; payload_strategy?: { valid_payload?: Record<string, unknown>; invalid_payload?: Record<string, unknown>; boundary_payloads?: Record<string, unknown>[] }; fixture_strategy?: { kind: string; proven: boolean; payload?: Record<string, unknown>; create?: { operation_id: string; method: string; path: string }; read?: { operation_id: string; method: string; path: string }; update?: { operation_id: string; method: string; path: string }; cleanup?: { operation_id: string; method: string; path: string }; identity?: { kind: "response_body" | "location_header" | "explicit" | "none"; path?: string; header?: string; proven: boolean } }; oracle_specification?: { kind: string; assertion: string; proven: boolean }; }
 export interface DeclarativeMappingAudit { required_requirement_ids: string[]; planned_requirement_ids: string[]; generated_case_ids: string[]; requirement_case_map: Record<string, string[]>; requirement_oracle_map: Record<string, string[]>; case_step_map: Record<string, string[]>; unmapped_requirements: { requirement_id: string; reason: string }[]; match: "COMPLETE" | "PARTIAL" | "MISMATCH"; }
 export interface CompiledSuite { plan: FixturePlan | TestPlan; source: string; mappingAudit: { planned_case_ids?: string[]; generated_case_ids: string[]; match: "COMPLETE" | "PARTIAL" | "MISMATCH"; required_requirement_ids?: string[]; planned_requirement_ids?: string[]; requirement_case_map?: Record<string, string[]>; requirement_oracle_map?: Record<string, string[]>; case_step_map?: Record<string, string[]>; unmapped_requirements?: { requirement_id: string; reason: string }[] }; digest?: string; }
 
@@ -62,36 +62,36 @@ function buildRequirementExecution(requirement: RequirementLike, caseId: string,
   const steps: TestStep[] = [];
   const primaryApi = primary.action === "api_request" ? primary : undefined;
   const fixturePriority = priorityForFeature(catalog, requirement.feature_id);
-  const collectionPath = primaryApi ? collectionPathFor(primaryApi, catalog) : "/";
+  const collectionPath = primaryApi ? collectionPathFor(requirement, primaryApi) : "/";
   const setupResponse = "setup_" + safeRequirement;
   const setupSecondaryResponse = "setup_secondary_" + safeRequirement;
-  const idPath = `${collectionPath}/\${responses.${setupResponse}.body.id}`;
+  const idPath = fixturePath(requirement, setupResponse, "read", primaryApi?.path || collectionPath);
   const needsItem = ["route_detail", "completed_state", "update_persists", "delete_removes_entity"].includes(requirement.intent);
   if (needsItem) {
-    setup.push({ action: "api_request", method: "POST", path: collectionPath, body: { title: "AutoPW fixture", priority: fixturePriority }, save_as: setupResponse, acceptable_statuses: [201] });
+    setup.push({ action: "api_request", method: "POST", path: collectionPath, body: requirement.fixture_strategy?.payload || { title: "AutoPW fixture", priority: fixturePriority }, save_as: setupResponse, acceptable_statuses: [201] });
     if (primaryApi) primaryApi.path = idPath;
     if (requirement.intent === "delete_removes_entity") cleanup.push({ action: "api_request", method: "GET", path: idPath, acceptable_statuses: [404] });
-    else cleanup.push({ action: "api_request", method: "DELETE", path: idPath, acceptable_statuses: [204] });
+    else cleanup.push({ action: "api_request", method: "DELETE", path: fixturePath(requirement, setupResponse, "cleanup", idPath), acceptable_statuses: [204] });
   }
-  if (requirement.intent === "create_succeeds") cleanup.push({ action: "api_request", method: "DELETE", path: `${collectionPath}/\${responses.${responseName}.body.id}`, acceptable_statuses: [204] });
+  if (requirement.intent === "create_succeeds") cleanup.push({ action: "api_request", method: "DELETE", path: fixturePath(requirement, responseName, "cleanup", `${collectionPath}/\${responses.${responseName}.body.id}`), acceptable_statuses: [204] });
   if (requirement.intent === "search_filters_results") {
     setup.push({ action: "api_request", method: "POST", path: collectionPath, body: { title: "AutoPW", priority: fixturePriority }, save_as: setupResponse, acceptable_statuses: [201] });
     setup.push({ action: "api_request", method: "POST", path: collectionPath, body: { title: "OtherPW", priority: fixturePriority }, save_as: setupSecondaryResponse, acceptable_statuses: [201] });
-    cleanup.push({ action: "api_request", method: "DELETE", path: `${collectionPath}/\${responses.${setupResponse}.body.id}`, acceptable_statuses: [204] });
-    cleanup.push({ action: "api_request", method: "DELETE", path: `${collectionPath}/\${responses.${setupSecondaryResponse}.body.id}`, acceptable_statuses: [204] });
+    cleanup.push({ action: "api_request", method: "DELETE", path: fixturePath(requirement, setupResponse, "cleanup", collectionPath), acceptable_statuses: [204] });
+    cleanup.push({ action: "api_request", method: "DELETE", path: fixturePath(requirement, setupSecondaryResponse, "cleanup", collectionPath), acceptable_statuses: [204] });
   }
   if (requirement.intent === "summary_is_consistent") {
     setup.push({ action: "api_request", method: "POST", path: collectionPath, body: { title: "AutoPW fixture", priority: fixturePriority }, save_as: setupResponse, acceptable_statuses: [201] });
-    setup.push({ action: "api_request", method: "PATCH", path: `${collectionPath}/\${responses.${setupResponse}.body.id}`, body: { completed: true }, save_as: "setup_completed_" + safeRequirement, acceptable_statuses: [200] });
+    setup.push({ action: "api_request", method: "PATCH", path: fixturePath(requirement, setupResponse, "update", collectionPath), body: { completed: true }, save_as: "setup_completed_" + safeRequirement, acceptable_statuses: [200] });
     setup.push({ action: "api_request", method: "POST", path: collectionPath, body: { title: "AutoPW open", priority: fixturePriority }, save_as: setupSecondaryResponse, acceptable_statuses: [201] });
-    cleanup.push({ action: "api_request", method: "DELETE", path: `${collectionPath}/\${responses.${setupResponse}.body.id}`, acceptable_statuses: [204] });
-    cleanup.push({ action: "api_request", method: "DELETE", path: `${collectionPath}/\${responses.${setupSecondaryResponse}.body.id}`, acceptable_statuses: [204] });
+    cleanup.push({ action: "api_request", method: "DELETE", path: fixturePath(requirement, setupResponse, "cleanup", collectionPath), acceptable_statuses: [204] });
+    cleanup.push({ action: "api_request", method: "DELETE", path: fixturePath(requirement, setupSecondaryResponse, "cleanup", collectionPath), acceptable_statuses: [204] });
   }
   if (requirement.intent === "count_consistent") {
     setup.push({ action: "api_request", method: "POST", path: collectionPath, body: { title: "AutoPW first", priority: fixturePriority }, save_as: setupResponse, acceptable_statuses: [201] });
     setup.push({ action: "api_request", method: "POST", path: collectionPath, body: { title: "AutoPW second", priority: fixturePriority }, save_as: setupSecondaryResponse, acceptable_statuses: [201] });
-    cleanup.push({ action: "api_request", method: "DELETE", path: `${collectionPath}/\${responses.${setupResponse}.body.id}`, acceptable_statuses: [204] });
-    cleanup.push({ action: "api_request", method: "DELETE", path: `${collectionPath}/\${responses.${setupSecondaryResponse}.body.id}`, acceptable_statuses: [204] });
+    cleanup.push({ action: "api_request", method: "DELETE", path: fixturePath(requirement, setupResponse, "cleanup", collectionPath), acceptable_statuses: [204] });
+    cleanup.push({ action: "api_request", method: "DELETE", path: fixturePath(requirement, setupSecondaryResponse, "cleanup", collectionPath), acceptable_statuses: [204] });
   }
   const oracleBindings: string[] = [];
   const appendAssertion = (step: TestStep): void => {
@@ -140,13 +140,23 @@ function buildRequirementExecution(requirement: RequirementLike, caseId: string,
   return { setup, steps, cleanup, oracleBindings: hasCandidateOracle ? oracleBindings : [] };
 }
 
-function collectionPathFor(primary: Extract<TestStep, { action: "api_request" }>, catalog: CandidateCatalog): string {
+function collectionPathFor(requirement: RequirementLike, primary: Extract<TestStep, { action: "api_request" }>): string {
+  const fixtureCreate = requirement.fixture_strategy?.create?.path;
+  if (fixtureCreate) return String(fixtureCreate).split("?")[0] || "/";
   const primaryPath = String(primary.path).split("?")[0];
   if (primary.method === "POST" && !primaryPath.includes(":id") && !primaryPath.includes("${")) return primaryPath || "/";
-  const createEndpoint = Object.values(catalog.endpoints).find((item) => item.method === "POST" && typeof item.path === "string" && !item.path.includes(":id"));
-  if (createEndpoint?.path) return String(createEndpoint.path).split("?")[0] || "/";
   return primaryPath || "/";
 }
+function fixturePath(requirement: RequirementLike, responseName: string, role: "read" | "update" | "cleanup", fallback: string): string {
+  const fixture = requirement.fixture_strategy;
+  const target = fixture?.[role]?.path || fallback;
+  const identity = fixture?.identity;
+  if (identity?.kind === "location_header") return `\${responses.${responseName}.headers.${identity.header || "location"}}`;
+  if (identity?.kind === "explicit" && identity.path) return replacePathIdentity(target, identity.path);
+  if (identity?.kind === "response_body" && identity.path) return replacePathIdentity(target, `\${responses.${responseName}.body.${identity.path.replace(/^body\./, "")}}`);
+  return target;
+}
+function replacePathIdentity(path: string, identity: string): string { return path.replace(/:[A-Za-z0-9_]+/, identity); }
 function tierForRequirement(requirement: RequirementLike): "smoke" | "fast" | "full" {
   if (requirement.priority === "P2") return "full";
   if (requirement.priority === "P1") return "fast";

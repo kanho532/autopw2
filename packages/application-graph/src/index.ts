@@ -40,6 +40,7 @@ export interface OperationNode extends GraphNodeBase {
   feature_ids: string[];
   request_schema_refs: string[];
   response_statuses: number[];
+  identity_candidates: Array<{ kind: "response_body" | "location_header" | "explicit"; path?: string; header?: string }>;
   resource_id?: string;
 }
 
@@ -55,6 +56,8 @@ export interface FieldNode extends GraphNodeBase {
   name: string;
   resource_id?: string;
   constraints: Array<{ rule: string; value?: unknown; values?: unknown[] }>;
+  schema_types: string[];
+  examples: unknown[];
 }
 
 export interface RouteNode extends GraphNodeBase {
@@ -138,6 +141,7 @@ interface OperationAccumulator {
   featureIds: Set<string>;
   requestSchemaRefs: Set<string>;
   responseStatuses: Set<number>;
+  identityCandidates: Array<{ kind: "response_body" | "location_header" | "explicit"; path?: string; header?: string }>;
   evidenceRefs: Set<string>;
   factIds: Set<string>;
   confidenceTotal: number;
@@ -160,8 +164,8 @@ export function buildApplicationGraph(discovery: DiscoveryLike): GraphBuildResul
     let accumulator = operationAccumulators.get(key);
     if (!accumulator) {
       accumulator = {
-        node: { id: stableId("operation", key), kind: "operation", protocol: protocolOf(fact), method, path_template: pathTemplate, operation_kinds: [], feature_ids: [], request_schema_refs: [], response_statuses: [], evidence_refs: [], confidence: 0 },
-        operationKinds: new Set(), featureIds: new Set(), requestSchemaRefs: new Set(), responseStatuses: new Set(), evidenceRefs: new Set(), factIds: new Set(), confidenceTotal: 0, confidenceCount: 0
+        node: { id: stableId("operation", key), kind: "operation", protocol: protocolOf(fact), method, path_template: pathTemplate, operation_kinds: [], feature_ids: [], request_schema_refs: [], response_statuses: [], identity_candidates: [], evidence_refs: [], confidence: 0 },
+        operationKinds: new Set(), featureIds: new Set(), requestSchemaRefs: new Set(), responseStatuses: new Set(), identityCandidates: [], evidenceRefs: new Set(), factIds: new Set(), confidenceTotal: 0, confidenceCount: 0
       };
       operationAccumulators.set(key, accumulator);
     }
@@ -172,6 +176,7 @@ export function buildApplicationGraph(discovery: DiscoveryLike): GraphBuildResul
     const requestSchemaRef = stringValue(fact.request_schema_ref);
     if (requestSchemaRef) accumulator.requestSchemaRefs.add(requestSchemaRef);
     for (const status of numberArray(fact.response_statuses)) accumulator.responseStatuses.add(status);
+    for (const candidate of identityCandidatesOf(fact.identity_candidates)) accumulator.identityCandidates.push(candidate);
     accumulator.evidenceRefs.add(evidenceRef);
     accumulator.factIds.add(fact.fact_id);
     accumulator.confidenceTotal += confidenceOf(fact);
@@ -195,6 +200,7 @@ export function buildApplicationGraph(discovery: DiscoveryLike): GraphBuildResul
     accumulator.node.feature_ids = [...accumulator.featureIds].sort();
     accumulator.node.request_schema_refs = [...accumulator.requestSchemaRefs].sort();
     accumulator.node.response_statuses = [...accumulator.responseStatuses].sort((left, right) => left - right);
+    accumulator.node.identity_candidates = uniqueObjects(accumulator.identityCandidates);
     accumulator.node.evidence_refs = [...accumulator.evidenceRefs].sort();
     accumulator.node.confidence = rounded(accumulator.confidenceTotal / accumulator.confidenceCount);
     if (accumulator.operationKinds.size > 1) {
@@ -245,9 +251,13 @@ export function buildApplicationGraph(discovery: DiscoveryLike): GraphBuildResul
     const fieldId = stableId("field", key);
     if (resourceId && !explicitResourcePath) diagnostics.push(makeDiagnostic("WEAK_ASSOCIATION", "warning", `Field ${name} is associated to a resource only through feature ${featureId}.`, [fieldId, resourceId], [evidenceRef]));
     const constraint = constraintOf(fact);
-    const current = fieldAccumulators.get(key) || { id: fieldId, kind: "field" as const, name, ...(resourceId ? { resource_id: resourceId } : {}), constraints: [], evidence_refs: [], confidence: confidenceOf(fact) };
+    const current = fieldAccumulators.get(key) || { id: fieldId, kind: "field" as const, name, ...(resourceId ? { resource_id: resourceId } : {}), constraints: [], schema_types: [], examples: [], evidence_refs: [], confidence: confidenceOf(fact) };
     if (constraint) current.constraints.push(constraint);
     current.constraints = uniqueObjects(current.constraints);
+    const schemaType = stringValue(fact.schema_type);
+    if (schemaType) current.schema_types = sortedUnique([...current.schema_types, schemaType]);
+    if (Object.hasOwn(fact, "example")) current.examples = uniqueObjects([...current.examples, fact.example]);
+    if (Object.hasOwn(fact, "default")) current.examples = uniqueObjects([...current.examples, fact.default]);
     current.evidence_refs = sortedUnique([...current.evidence_refs, evidenceRef]);
     current.confidence = rounded(Math.min(current.confidence, confidenceOf(fact)));
     fieldAccumulators.set(key, current);
@@ -402,6 +412,17 @@ function constraintOf(fact: FactRecord): FieldNode["constraints"][number] | unde
   return { rule, ...(Object.hasOwn(fact, "value") ? { value: fact.value } : {}), ...(Array.isArray(fact.values) ? { values: fact.values } : {}) };
 }
 
+function identityCandidatesOf(value: unknown): OperationNode["identity_candidates"] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(isRecord).flatMap((item) => {
+    const kind = stringValue(item.kind);
+    if (kind !== "response_body" && kind !== "location_header" && kind !== "explicit") return [];
+    const path = stringValue(item.path);
+    const header = stringValue(item.header);
+    return [{ kind, ...(path ? { path } : {}), ...(header ? { header: header.toLowerCase() } : {}) }];
+  });
+}
+
 function makeEdge(relation: ApplicationGraphEdge["relation"], from: string, to: string, evidenceRefs: string[], confidence: number): ApplicationGraphEdge {
   const refs = sortedUnique(evidenceRefs);
   return { id: stableId("edge", [relation, from, to, ...refs].join("|")), relation, from, to, confidence: rounded(confidence), evidence_refs: refs };
@@ -433,7 +454,7 @@ function confidenceOf(value: Record<string, unknown>): number {
 function normalizePath(value: string): string {
   try {
     const parsed = new URL(value, "http://application-graph.invalid");
-    const pathname = parsed.pathname.replace(/\{([^}]+)\}/g, ":$1").replace(/\/{2,}/g, "/").replace(/\/$/, "") || "/";
+    const pathname = decodeURIComponent(parsed.pathname).replace(/\{([^}]+)\}/g, ":$1").replace(/\/{2,}/g, "/").replace(/\/$/, "") || "/";
     return pathname + parsed.search.replace(/%20/g, " ");
   } catch {
     return (value.split("#")[0] || "/").replace(/\/{2,}/g, "/").replace(/\/$/, "") || "/";

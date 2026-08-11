@@ -23,7 +23,7 @@ export interface RouteMapping { file_glob: string; routes: string[]; features: s
 export interface DiscoveryInput { root: string; project_subpath?: string; route_map?: { ignore_globs?: string[]; mappings?: RouteMapping[] }; target_url?: string; budget?: DiscoveryBudget; }
 export interface DiscoveryCandidate { id: string; kind: string; route: string; feature_id: string; locator?: string; fact_id?: string; source_untrusted: true; }
 export interface ScenarioObservation { feature_id: string; scenario: string; observed: boolean; blocker: boolean; priority: "P0" | "P1" | "P2"; reason?: string; }
-export interface DiscoveryFact { fact_id: string; fact_type: "control" | "endpoint" | "validation" | "route" | "correlation" | "schema" | "runtime_response" | "workflow"; source_ref?: { path: string; line?: number }; route?: string; confidence: number; [key: string]: unknown; }
+export interface DiscoveryFact { fact_id: string; fact_type: "control" | "endpoint" | "field" | "validation" | "route" | "correlation" | "schema" | "runtime_response" | "workflow"; source_ref?: { path: string; line?: number }; route?: string; confidence: number; [key: string]: unknown; }
 export interface DiscoveryResult {
   schema_version: "2.1";
   observations: Record<string, unknown>[];
