@@ -19,7 +19,7 @@ let passed = 0;
 let failed = 0;
 function check(name, value, detail = "") { if (value) { passed += 1; console.log("PASS", name, detail); } else { failed += 1; console.log("FAIL", name, detail); } }
 function snapshot(runId) { return { run_id: runId, operation_id: "op_" + runId, workspace_id: "m10", phase: "CREATED", run_status: "ACTIVE", audit_status: null, gate: null, fatal_class: null, progress_pct: 0, next_action: "run" }; }
-function request(targetUrl) { return { project_subpath: ".", profile_path: "profiles/default/profile.json", tier: "full", base_tier: "full", __target_url: targetUrl, __allowed_origins: [new URL(targetUrl).origin], __trust_snapshot: { allowed_origins: [new URL(targetUrl).origin], workspace_id: "m10", workspace_root: root }, matrix: { browsers: ["chromium"], viewports: [{ width: 1280, height: 720 }], locales: ["en-US"], auth_scope_ids: ["as_demo"] } }; }
+function request(targetUrl) { return { project_subpath: ".", profile_path: "profiles/default/profile.json", tier: "full", base_tier: "full", __target_url: targetUrl, __allowed_origins: [new URL(targetUrl).origin], __trust_snapshot: { allowed_origins: [new URL(targetUrl).origin], workspace_id: "m10", workspace_root: root, destructive_actions: "allow" }, matrix: { browsers: ["chromium"], viewports: [{ width: 1280, height: 720 }], locales: ["en-US"], auth_scope_ids: ["as_demo"] } }; }
 function phaseList(dataRoot, runId) { return fs.readFileSync(path.join(dataRoot, "runs", runId, "events.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line)).filter((event) => event.kind === "PHASE_COMMITTED").map((event) => event.phase); }
 function rejects(fn, code) { try { fn(); return false; } catch (error) { return !code || error?.code === code; } }
 async function waitForMcpResult(server, runId) { for (let attempt = 0; attempt < 120; attempt += 1) { const result = await server.callTool("get_run_result", { schema_version: "2.1", workspace_id: "ws_m10", run_id: runId }); if (result.kind === "ok" || result.kind === "failed" || result.kind === "error") return result; await new Promise((resolve) => setTimeout(resolve, 100)); } return server.callTool("get_run_result", { schema_version: "2.1", workspace_id: "ws_m10", run_id: runId }); }
@@ -48,9 +48,16 @@ try {
   check("m10-artifacts-and-reports-are-restart-readable", fs.existsSync(path.join(dataRoot, "runs", "run_m10_default_a", "artifact-index.json")) && fs.existsSync(path.join(dataRoot, "runs", "run_m10_default_a", "artifacts", "report.md")) && fs.existsSync(path.join(dataRoot, "runs", "run_m10_default_a", "artifacts", "report.html")));
 
   target.reset();
+  const beforeProductionStats = target.getStats();
+  const productionRuntime = new core.AuditVerticalSlice({ root: targetRoot, dataRoot: path.join(dataRoot, "production"), production: true, targetProvider: new core.ExternalTargetProvider(target.baseUrl) });
+  const productionResult = await productionRuntime.execute({ run: snapshot("run_m10_production"), request: request(target.baseUrl), onPhase: () => undefined });
+  const afterProductionStats = target.getStats();
+  check("m10-core-production-mode-blocks-generated-mutations", afterProductionStats.creates === beforeProductionStats.creates && afterProductionStats.updates === beforeProductionStats.updates && afterProductionStats.deletes === beforeProductionStats.deletes && productionResult.gate === "incomplete" && productionResult.cases.some((item) => /production policy forbids/i.test(item.error || "")), JSON.stringify({ before: beforeProductionStats, after: afterProductionStats, gate: productionResult.gate, audit: productionResult.audit_status, cases: productionResult.cases }));
+
+  target.reset();
   const mcpDataRoot = path.join(dataRoot, "mcp-default");
   const mcpServer = new mcp.McpServer({ root, dataRoot: mcpDataRoot, stepMs: 2, targetProvider: new core.ExternalTargetProvider(target.baseUrl) });
-  mcpServer.registerHostContext("ws_m10", { mcp_host_context: { workspace_authorization: { workspace_id: "ws_m10", workspace_realpath: root, deny_symlink_escape: true }, trust_mode: "trusted", auth_scope: { auth_scope_id: "as_demo", mode: "none", isolated: true }, allowed_origins: [new URL(target.baseUrl).origin], caller: "m10-verifier", policy_version: "1.0.0" } });
+  mcpServer.registerHostContext("ws_m10", { mcp_host_context: { workspace_authorization: { workspace_id: "ws_m10", workspace_realpath: root, deny_symlink_escape: true }, trust_mode: "trusted", auth_scope: { auth_scope_id: "as_demo", mode: "none", isolated: true }, allowed_origins: [new URL(target.baseUrl).origin], destructive_actions: "allow", caller: "m10-verifier", policy_version: "1.0.0" } });
   mcpServer.start();
   try {
     const accepted = await mcpServer.callTool("run_audit", { schema_version: "2.1", client_request_id: "m10_default_mcp", workspace_id: "ws_m10", project_subpath: ".", profile_path: "profiles/default/profile.json", base_tier: "full", matrix: { browsers: ["chromium"], viewports: [{ width: 1280, height: 720 }], locales: ["en-US"], auth_scope_ids: ["as_demo"] } });

@@ -20,6 +20,9 @@ function baseCase(case_id, kind, risk = "read_only") {
 function plan(cases) {
   return { plan_schema: "autopw.test-plan/1.0", plan_id: "m9.3-runner", generated_at: "2026-08-07T00:00:00.000Z", origin: { type: "manual", source_ref: "verify:m9.3" }, coverage_eligible: true, cases };
 }
+function generatedPlan(cases) {
+  return { ...plan(cases), plan_id: "m9.3-generated-runner", origin: { type: "generated", source_ref: "verify:m9.3" }, cases: cases.map((item) => ({ ...item, origin: { type: "generated", source_ref: "verify:m9.3" } })) };
+}
 
 const cases = [
   { ...baseCase("ui_case", "ui"), steps: [
@@ -62,7 +65,7 @@ const cases = [
   { ...baseCase("timeout_case", "api"), execution_policy: { production_allowed: false, retries: 0, timeout_ms: 25 }, steps: [
     { action: "api_request", method: "GET", path: "/api/slow", save_as: "slow" }
   ] },
-  { ...baseCase("timeout_cleanup_case", "api", "mutating"), execution_policy: { production_allowed: false, retries: 0, timeout_ms: 100 }, setup: [
+  { ...baseCase("timeout_cleanup_case", "api", "mutating"), execution_policy: { production_allowed: false, retries: 0, timeout_ms: 500 }, setup: [
     { action: "api_request", method: "POST", path: "/api/items", body: { name: "M9.3 timeout cleanup item" }, save_as: "created" }
   ], steps: [
     { action: "api_request", method: "GET", path: "/api/slow-long", save_as: "slow" }
@@ -100,7 +103,7 @@ try {
   check("m9.3-api-redirect-rechecks-origin", byCase.get("redirect_case")?.status === "FAILED" && byCase.get("redirect_case")?.classification === "INFRA_DEFECT" && /origin is not allowed/i.test(byCase.get("redirect_case")?.error || ""));
   check("m9.3-json-schema-enforces-keywords", byCase.get("schema_case")?.status === "FAILED" && byCase.get("schema_case")?.classification === "PRODUCT_DEFECT" && /expect_json_schema/i.test(byCase.get("schema_case")?.error || ""));
   check("m9.3-case-timeout-is-enforced", byCase.get("timeout_case")?.status === "FAILED" && byCase.get("timeout_case")?.classification === "TEST_DEFECT");
-  check("m9.3-timeout-still-runs-cleanup", byCase.get("timeout_cleanup_case")?.status === "FAILED" && byCase.get("timeout_cleanup_case")?.cleanup_status === "PASSED" && byCase.get("timeout_cleanup_case")?.path.some((step) => step.phase === "cleanup" && step.status === "PASSED"));
+  check("m9.3-timeout-still-runs-cleanup", byCase.get("timeout_cleanup_case")?.status === "FAILED" && byCase.get("timeout_cleanup_case")?.cleanup_status === "PASSED" && byCase.get("timeout_cleanup_case")?.path.some((step) => step.phase === "cleanup" && step.status === "PASSED"), JSON.stringify(byCase.get("timeout_cleanup_case")));
   check("m9.3-retry-flaky-is-recorded", byCase.get("retry_flaky_case")?.status === "PASSED" && byCase.get("retry_flaky_case")?.stability === "FLAKY" && byCase.get("retry_flaky_case")?.attempts.length === 2);
   check("m9.3-cleanup-failure-is-classified", byCase.get("cleanup_failure_case")?.status === "FAILED" && byCase.get("cleanup_failure_case")?.cleanup_status === "FAILED" && byCase.get("cleanup_failure_case")?.classification === "TEST_DEFECT" && byCase.get("cleanup_failure_case")?.path.some((step) => step.phase === "cleanup" && step.status === "FAILED"));
   check("m9.3-runtime-variable-keeps-secret", byCase.get("raw_variable_case")?.status === "PASSED");
@@ -117,6 +120,12 @@ try {
 
   const productionOutcome = await new execution.PlaywrightPlanRunner().run({ runId: "run_m9_3_production", baseUrl: target.baseUrl, plan: plan([{ ...baseCase("production_mutation", "api", "mutating"), steps: [{ action: "api_request", method: "POST", path: "/api/items", body: { name: "forbidden" }, save_as: "created" }] }]), production: true, storage: new storageModule.RunStorage(dataRoot), allowedOrigins: [target.baseUrl], planAuthority: "trusted_manual", trace: false });
   check("m9.3-production-mutation-is-blocked", productionOutcome.results[0]?.status === "FAILED" && productionOutcome.results[0]?.classification === "TEST_DEFECT" && productionOutcome.results[0]?.cleanup_status === "SKIPPED");
+
+  const lifecycleStatusOutcome = await new execution.PlaywrightPlanRunner().run({ runId: "run_m9_3_lifecycle_status", baseUrl: target.baseUrl, plan: plan([{ ...baseCase("lifecycle_status", "api", "mutating"), setup: [{ action: "api_request", method: "DELETE", path: "/api/items/missing", acceptable_statuses: [204] }], steps: [{ action: "api_request", method: "GET", path: "/health" }] }]), storage: new storageModule.RunStorage(dataRoot), allowedOrigins: [target.baseUrl], planAuthority: "trusted_manual", trace: false });
+  check("m9.3-lifecycle-status-contract-is-enforced", lifecycleStatusOutcome.results[0]?.status === "FAILED" && lifecycleStatusOutcome.results[0]?.classification === "TEST_DEFECT" && lifecycleStatusOutcome.results[0]?.path[0]?.phase === "setup" && lifecycleStatusOutcome.results[0]?.path[0]?.status === "FAILED");
+
+  const generatedMismatch = await new execution.PlaywrightPlanRunner().run({ runId: "run_m9_3_generated_mismatch", baseUrl: target.baseUrl, plan: generatedPlan([{ ...baseCase("generated_mismatch", "api"), steps: [{ action: "api_request", method: "GET", path: "/health", save_as: "health" }, { action: "expect_status", source: "$health", equals: 418 }] }]), storage: new storageModule.RunStorage(dataRoot), allowedOrigins: [target.baseUrl], planAuthority: "generated", trace: false });
+  check("m9.3-generated-oracle-mismatch-is-plan-defect", generatedMismatch.results[0]?.status === "FAILED" && generatedMismatch.results[0]?.classification === "PLAN_DEFECT");
 
   const redirectServer = http.createServer((request, response) => {
     if (request.url === "/redirect-to-target") { response.writeHead(302, { Location: target.baseUrl + "/api/auth-check" }); response.end(); return; }

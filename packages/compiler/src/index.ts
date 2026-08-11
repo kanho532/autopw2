@@ -68,29 +68,30 @@ function buildRequirementExecution(requirement: RequirementLike, caseId: string,
   const idPath = `${collectionPath}/\${responses.${setupResponse}.body.id}`;
   const needsItem = ["route_detail", "completed_state", "update_persists", "delete_removes_entity"].includes(requirement.intent);
   if (needsItem) {
-    setup.push({ action: "api_request", method: "POST", path: collectionPath, body: { title: "AutoPW fixture", priority: fixturePriority }, save_as: setupResponse });
+    setup.push({ action: "api_request", method: "POST", path: collectionPath, body: { title: "AutoPW fixture", priority: fixturePriority }, save_as: setupResponse, acceptable_statuses: [201] });
     if (primaryApi) primaryApi.path = idPath;
-    cleanup.push({ action: "api_request", method: "DELETE", path: idPath });
+    if (requirement.intent === "delete_removes_entity") cleanup.push({ action: "api_request", method: "GET", path: idPath, acceptable_statuses: [404] });
+    else cleanup.push({ action: "api_request", method: "DELETE", path: idPath, acceptable_statuses: [204] });
   }
-  if (requirement.intent === "create_succeeds") cleanup.push({ action: "api_request", method: "DELETE", path: `${collectionPath}/\${responses.${responseName}.body.id}` });
+  if (requirement.intent === "create_succeeds") cleanup.push({ action: "api_request", method: "DELETE", path: `${collectionPath}/\${responses.${responseName}.body.id}`, acceptable_statuses: [204] });
   if (requirement.intent === "search_filters_results") {
-    setup.push({ action: "api_request", method: "POST", path: collectionPath, body: { title: "AutoPW", priority: fixturePriority }, save_as: setupResponse });
-    setup.push({ action: "api_request", method: "POST", path: collectionPath, body: { title: "OtherPW", priority: fixturePriority }, save_as: setupSecondaryResponse });
-    cleanup.push({ action: "api_request", method: "DELETE", path: `${collectionPath}/\${responses.${setupResponse}.body.id}` });
-    cleanup.push({ action: "api_request", method: "DELETE", path: `${collectionPath}/\${responses.${setupSecondaryResponse}.body.id}` });
+    setup.push({ action: "api_request", method: "POST", path: collectionPath, body: { title: "AutoPW", priority: fixturePriority }, save_as: setupResponse, acceptable_statuses: [201] });
+    setup.push({ action: "api_request", method: "POST", path: collectionPath, body: { title: "OtherPW", priority: fixturePriority }, save_as: setupSecondaryResponse, acceptable_statuses: [201] });
+    cleanup.push({ action: "api_request", method: "DELETE", path: `${collectionPath}/\${responses.${setupResponse}.body.id}`, acceptable_statuses: [204] });
+    cleanup.push({ action: "api_request", method: "DELETE", path: `${collectionPath}/\${responses.${setupSecondaryResponse}.body.id}`, acceptable_statuses: [204] });
   }
   if (requirement.intent === "summary_is_consistent") {
-    setup.push({ action: "api_request", method: "POST", path: collectionPath, body: { title: "AutoPW fixture", priority: fixturePriority }, save_as: setupResponse });
-    setup.push({ action: "api_request", method: "PATCH", path: `${collectionPath}/\${responses.${setupResponse}.body.id}`, body: { completed: true }, save_as: "setup_completed_" + safeRequirement });
-    setup.push({ action: "api_request", method: "POST", path: collectionPath, body: { title: "AutoPW open", priority: fixturePriority }, save_as: setupSecondaryResponse });
-    cleanup.push({ action: "api_request", method: "DELETE", path: `${collectionPath}/\${responses.${setupResponse}.body.id}` });
-    cleanup.push({ action: "api_request", method: "DELETE", path: `${collectionPath}/\${responses.${setupSecondaryResponse}.body.id}` });
+    setup.push({ action: "api_request", method: "POST", path: collectionPath, body: { title: "AutoPW fixture", priority: fixturePriority }, save_as: setupResponse, acceptable_statuses: [201] });
+    setup.push({ action: "api_request", method: "PATCH", path: `${collectionPath}/\${responses.${setupResponse}.body.id}`, body: { completed: true }, save_as: "setup_completed_" + safeRequirement, acceptable_statuses: [200] });
+    setup.push({ action: "api_request", method: "POST", path: collectionPath, body: { title: "AutoPW open", priority: fixturePriority }, save_as: setupSecondaryResponse, acceptable_statuses: [201] });
+    cleanup.push({ action: "api_request", method: "DELETE", path: `${collectionPath}/\${responses.${setupResponse}.body.id}`, acceptable_statuses: [204] });
+    cleanup.push({ action: "api_request", method: "DELETE", path: `${collectionPath}/\${responses.${setupSecondaryResponse}.body.id}`, acceptable_statuses: [204] });
   }
   if (requirement.intent === "count_consistent") {
-    setup.push({ action: "api_request", method: "POST", path: collectionPath, body: { title: "AutoPW first", priority: fixturePriority }, save_as: setupResponse });
-    setup.push({ action: "api_request", method: "POST", path: collectionPath, body: { title: "AutoPW second", priority: fixturePriority }, save_as: setupSecondaryResponse });
-    cleanup.push({ action: "api_request", method: "DELETE", path: `${collectionPath}/\${responses.${setupResponse}.body.id}` });
-    cleanup.push({ action: "api_request", method: "DELETE", path: `${collectionPath}/\${responses.${setupSecondaryResponse}.body.id}` });
+    setup.push({ action: "api_request", method: "POST", path: collectionPath, body: { title: "AutoPW first", priority: fixturePriority }, save_as: setupResponse, acceptable_statuses: [201] });
+    setup.push({ action: "api_request", method: "POST", path: collectionPath, body: { title: "AutoPW second", priority: fixturePriority }, save_as: setupSecondaryResponse, acceptable_statuses: [201] });
+    cleanup.push({ action: "api_request", method: "DELETE", path: `${collectionPath}/\${responses.${setupResponse}.body.id}`, acceptable_statuses: [204] });
+    cleanup.push({ action: "api_request", method: "DELETE", path: `${collectionPath}/\${responses.${setupSecondaryResponse}.body.id}`, acceptable_statuses: [204] });
   }
   const oracleBindings: string[] = [];
   const appendAssertion = (step: TestStep): void => {

@@ -9,6 +9,7 @@ export function evaluateGate({ audit, auditStatus, coverage, gatePolicy, issues 
   const p0Required = Number(coverage?.p0_required || 0);
   const p0Executable = Number(coverage?.p0_executable || 0);
   if (p0Required > 0 && (p0Executable < p0Required || Number(coverage?.p0_planned || 0) < p0Required)) return { gate: "incomplete", exit_code: 2, reason: "P0 requirement is not planned and executable" };
+  if (issues.some((item) => item.classification === "PLAN_DEFECT" || item.classification === "TEST_DEFECT")) return { gate: "incomplete", exit_code: 2, reason: "test generation or plan execution is not trustworthy" };
   if (issues.some((item) => item.classification === "INFRA_DEFECT")) return { gate: "infra", exit_code: 2, reason: "infrastructure defect" };
   if (issues.some((item) => item.classification === "PRODUCT_DEFECT")) return { gate: "fail", exit_code: 1, reason: "product defect" };
   const flakyIssues = issues.filter((item) => item.classification === "UNSTABLE");

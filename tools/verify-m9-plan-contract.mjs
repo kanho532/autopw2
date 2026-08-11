@@ -77,6 +77,8 @@ check("m9.1-schema-valid-api-plan", schemaValidator(validApi));
 check("m9.9-schema-valid-explicit-oracle-bindings", schemaValidator({ ...base, plan_id: "contract_oracle", cases: [boundApiCase] }));
 check("m9.9-runtime-schema-parity-explicit-oracle-bindings", plan.validatePlan({ ...base, plan_id: "contract_oracle", cases: [boundApiCase] }).ok === schemaValidator({ ...base, plan_id: "contract_oracle", cases: [boundApiCase] }));
 check("m9.1-schema-valid-hybrid-plan", schemaValidator(validHybrid));
+const lifecycleStatusPlan = { ...base, plan_id: "contract_lifecycle_status", cases: [{ ...apiCase, setup: [{ action: "api_request", method: "POST", path: "/api/tasks", acceptable_statuses: [200, 201], save_as: "created" }] }] };
+check("m9.1-lifecycle-status-contract-valid", plan.validatePlan(lifecycleStatusPlan).ok && schemaValidator(lifecycleStatusPlan));
 check("m9.1-duplicate-case-id-rejected", !plan.validatePlan({ ...base, cases: [uiCase, uiCase] }).ok);
 check("m9.1-forbidden-action-rejected", !plan.validatePlan({ ...base, cases: [{ ...uiCase, steps: [{ action: "execute_js", code: "alert(1)" }] }] }).ok);
 check("m9.1-forbidden-property-rejected", !plan.validatePlan({ ...base, cases: [{ ...uiCase, steps: [{ action: "click", selector: "#save" }] }] }).ok);
@@ -97,7 +99,8 @@ const parityCases = [
   ["invalid-timestamp", { ...validUi, generated_at: "not-a-date" }],
   ["generated-css-plan", { ...base, origin: { type: "generated" }, cases: [{ ...uiCase, steps: [{ action: "click", locator: { by: "css", value: "#save", authority: "trusted_manual" } }] }] }],
   ["generated-case-origin-override", { ...base, origin: { type: "generated" }, cases: [{ ...uiCase, origin: { type: "manual" }, steps: [{ action: "click", locator: { by: "css", value: "#save", authority: "trusted_manual" } }] }] }],
-  ["generated-case-origin-override-without-css", { ...base, origin: { type: "generated" }, cases: [{ ...uiCase, origin: { type: "manual" } }] }]
+  ["generated-case-origin-override-without-css", { ...base, origin: { type: "generated" }, cases: [{ ...uiCase, origin: { type: "manual" } }] }],
+  ["invalid-lifecycle-status-contract", { ...base, cases: [{ ...apiCase, setup: [{ action: "api_request", method: "POST", path: "/api/tasks", acceptable_statuses: [99, 201, 201] }] }] }]
 ];
 for (const [name, candidate] of parityCases) check("m9.1-schema-runtime-parity-" + name, Boolean(schemaValidator(candidate)) === plan.validatePlan(candidate).ok);
 

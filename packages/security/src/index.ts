@@ -15,6 +15,7 @@ export interface HostContextLike {
   config_source?: { base_revision?: string; fixed_path?: string; approved_overlay?: string; pr_head_allowed?: boolean };
   policy_version?: string;
   production?: boolean;
+  destructive_actions?: DestructivePolicy;
   allowed_origins?: string[];
 }
 
@@ -53,8 +54,9 @@ export class TrustResolver {
     if (profile.auth_scope_id && profile.auth_scope_id !== host.auth_scope.auth_scope_id) throw securityError("AUTH_SCOPE_NOT_APPROVED", "profile auth scope is not host approved");
     const lifecycle: LifecycleMode = host.trust_mode === "untrusted_pr" ? "connect" : profile.lifecycle || "connect";
     const production = Boolean(host.production || profile.production);
-    if (production && profile.destructive_actions === "allow") throw securityError("PRODUCTION_MUTATION_DENIED", "production policy cannot allow destructive actions");
-    const destructive = production ? "deny" : profile.destructive_actions || "deny";
+    const requestedDestructive = profile.destructive_actions || host.destructive_actions || "deny";
+    if (production && requestedDestructive === "allow") throw securityError("PRODUCTION_MUTATION_DENIED", "production policy cannot allow destructive actions");
+    const destructive = production ? "deny" : requestedDestructive;
     const source = host.trust_mode === "untrusted_pr"
       ? profile.config_source === "head" ? "base"
         : profile.config_source === "approved_overlay" && host.config_source?.approved_overlay ? "approved_overlay"

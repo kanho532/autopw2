@@ -41,7 +41,7 @@ export type LocatorActionStep = ClickStep | SelectStep | CheckStep | UncheckStep
 export interface FillStep { action: "fill"; locator: LocatorRef; value: string; }
 export interface PressStep { action: "press"; locator: LocatorRef; key: string; }
 export interface WaitForStep { action: "wait_for"; locator?: LocatorRef; state?: "visible" | "hidden" | "attached"; timeout_ms?: number; }
-export interface ApiRequestStep { action: "api_request"; method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" | "HEAD"; path: string; headers?: Record<string, string>; body?: unknown; save_as?: string; }
+export interface ApiRequestStep { action: "api_request"; method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" | "HEAD"; path: string; headers?: Record<string, string>; body?: unknown; save_as?: string; acceptable_statuses?: number[]; }
 export interface ExpectVisibleStep { action: "expect_visible" | "expect_hidden"; locator: LocatorRef; }
 export type ExpectTextStep = { action: "expect_text"; locator: LocatorRef; equals: string; contains?: never } | { action: "expect_text"; locator: LocatorRef; contains: string; equals?: never };
 export interface ExpectValueStep { action: "expect_value"; locator: LocatorRef; equals: string; }

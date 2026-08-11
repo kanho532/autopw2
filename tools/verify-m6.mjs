@@ -34,6 +34,8 @@ const resolver = new security.TrustResolver();
 const trustedResolution = resolver.resolve(trusted, { lifecycle: "manage", auth_scope_id: "as_demo", allowed_origins: ["http://127.0.0.1:4173"] });
 check("m6-trusted-host-policy-resolves", trustedResolution.policy.lifecycle === "manage" && trustedResolution.policy.auth_scope_id === "as_demo");
 check("m6-profile-cannot-widen-origins", trustedResolution.policy.allowed_origins.length === 1 && trustedResolution.policy.allowed_origins[0] === "http://127.0.0.1:4173");
+check("m6-destructive-actions-default-deny", trustedResolution.policy.destructive_actions === "deny");
+check("m6-trusted-host-can-explicitly-allow-destructive", resolver.resolve({ ...trusted, destructive_actions: "allow" }).policy.destructive_actions === "allow");
 check("m6-untrusted-forces-connect", resolver.resolve(untrusted, { lifecycle: "manage" }).policy.lifecycle === "connect");
 check("m6-untrusted-head-config-denied", rejects(() => resolver.resolve(untrusted, { config_source: "head" }), "UNTRUSTED_HEAD_CONFIG"));
 check("m6-untrusted-auth-is-isolated", rejects(() => resolver.resolve({ ...untrusted, auth_scope: { ...untrusted.auth_scope, one_shot: false } }), "UNTRUSTED_AUTH_SCOPE"));

@@ -26,7 +26,12 @@ check("m9.8-pass-gate-uses-coverage", gate.evaluateGate({ audit: complete, cover
 check("m9.8-p0-gap-is-incomplete", gate.evaluateGate({ audit: complete, coverage: { ...coverage, p0_planned: 0, p0_executable: 0 }, gatePolicy: { min_p0_coverage_pct: 100 }, issues: [] }).gate === "incomplete");
 check("m9.8-product-defect-is-fail", gate.evaluateGate({ audit: complete, coverage, issues: [{ classification: "PRODUCT_DEFECT" }] }).gate === "fail");
 check("m9.8-infra-defect-is-infra", gate.evaluateGate({ audit: complete, coverage, issues: [{ classification: "INFRA_DEFECT" }] }).gate === "infra");
+check("m9.8-plan-defect-is-incomplete", gate.evaluateGate({ audit: complete, coverage, issues: [{ classification: "PLAN_DEFECT" }] }).gate === "incomplete");
+check("m9.8-test-defect-is-incomplete", gate.evaluateGate({ audit: complete, coverage, issues: [{ classification: "TEST_DEFECT" }] }).gate === "incomplete");
 check("m9.8-flaky-threshold-is-unstable", gate.evaluateGate({ audit: complete, coverage, issues: [{ classification: "UNSTABLE" }], gatePolicy: { max_flaky_cases: 0 } }).gate === "unstable");
+
+const planFailure = audit.auditExecution([result.case_id], [{ ...result, status: "FAILED", classification: "PLAN_DEFECT", error: "generated endpoint mismatch" }], manifest, { requirements: [{ requirement_id: "req_p0", priority: "P0", oracle: { kind: "status", assertion: "returns 200" } }], requirementCaseMap: { req_p0: [result.case_id] }, requirementOracleMap: { req_p0: ["case_p0:step_0"] }, coverage, cases: [{ ...cases[0], confidence: 0.9, origin: { type: "generated" } }] });
+check("m9.8-plan-defect-confidence-is-not-high", planFailure.issues[0]?.classification === "PLAN_DEFECT" && planFailure.issues[0]?.confidence === "MEDIUM");
 
 const cleanupFailed = audit.auditExecution([result.case_id], [{ ...result, cleanup_status: "FAILED" }], manifest, { requirements: [{ requirement_id: "req_p0", priority: "P0", oracle: { kind: "status", assertion: "returns 200" } }], requirementCaseMap: { req_p0: [result.case_id] }, requirementOracleMap: { req_p0: ["case_p0:step_0"] }, coverage, cases: [{ ...cases[0], risk: "mutating", execution_policy: { isolated_fixture_required: true } }] });
 check("m9.8-isolation-policy-does-not-forgive-cleanup", cleanupFailed.cleanup_complete === false && gate.evaluateGate({ audit: cleanupFailed, coverage, issues: cleanupFailed.issues }).gate === "incomplete");

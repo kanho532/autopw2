@@ -133,7 +133,7 @@ export class AuditVerticalSlice {
       commitPhase("RUNNING", 60, "poll get_run_status");
       const executionStartedAt = Date.now();
       const execution = this.engineModes.plan_engine === "declarative"
-        ? await this.runner.run({ runId: run.run_id, baseUrl: target.baseUrl, allowedOrigins: this.resolvedAllowedOrigins(request), plan: effectivePlan as TestPlan, matrix: matrixFromRequest(request), tier: String(request.tier || request.base_tier || "fast") as "smoke" | "fast" | "full", storage: this.storage, planAuthority: manualPlan ? "trusted_manual" : "generated" })
+        ? await this.runner.run({ runId: run.run_id, baseUrl: target.baseUrl, allowedOrigins: this.resolvedAllowedOrigins(request), plan: effectivePlan as TestPlan, matrix: matrixFromRequest(request), tier: String(request.tier || request.base_tier || "fast") as "smoke" | "fast" | "full", storage: this.storage, planAuthority: manualPlan ? "trusted_manual" : "generated", production: this.production })
         : await this.runner.run({ runId: run.run_id, baseUrl: target.baseUrl, allowedOrigins: this.resolvedAllowedOrigins(request), plan: effectivePlan as import("@autopw/execution-fixture").FixturePlan, variant, matrix: matrixFromRequest(request), tier: String(request.tier || request.base_tier || "fast") as "smoke" | "fast" | "full", storage: this.storage });
       releaseMetrics.execution_ms = Date.now() - executionStartedAt;
       const reconciledCoverage = this.engineModes.plan_engine === "declarative" ? reconcileRequirementCoverage(planner.requirements, effectiveCaseMap, execution.results) : undefined;
@@ -215,10 +215,12 @@ export class AuditVerticalSlice {
     const sourceMappings = discovery.observations.filter((observation) => observation.kind === "source" && typeof observation.path === "string" && Array.isArray(observation.features)).map((observation) => ({ file_glob: String(observation.path), features: (observation.features as unknown[]).filter((feature): feature is string => typeof feature === "string") }));
     const diff = analyzeDiff({ diffRef: typeof request.diff_ref === "string" ? request.diff_ref : undefined, root: this.root, mappings: sourceMappings });
     const matrixBudget = typeof request.matrix_budget === "object" && request.matrix_budget ? Number((request.matrix_budget as Record<string, unknown>).max_execution_instances || 0) : 0;
+    const trustSnapshot = isRecord(request.__trust_snapshot) ? request.__trust_snapshot : {};
+    const destructiveAllowed = !this.production && trustSnapshot.destructive_actions === "allow";
     const derivation = deriveCoverage({
       discovery, tier, diff,
       matrix: { ...matrixFromRequest(request), profile_max_execution_instances: matrixBudget || undefined, host_max_execution_instances: Number(request.__host_max_execution_instances || 100) },
-      destructive_allowed: request.allow_destructive !== false,
+      destructive_allowed: destructiveAllowed,
       input_versions: {
         workspace_digest: digest(this.root), profile_digest: digest(String(request.profile_path || "")),
         route_map_digest: digest("default-route-map"), diff_digest: digest(String(request.diff_ref || "NOOP")),

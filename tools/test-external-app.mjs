@@ -68,7 +68,7 @@ async function runExternal(options) {
     __manual_plan: manualPlan,
     __target_url: targetUrl.toString(),
     __allowed_origins: [targetUrl.origin],
-    __trust_snapshot: { allowed_origins: [targetUrl.origin], workspace_id: "external", workspace_root: targetRoot },
+    __trust_snapshot: { allowed_origins: [targetUrl.origin], workspace_id: "external", workspace_root: targetRoot, destructive_actions: options["allow-destructive"] === true ? "allow" : "deny" },
     __gate_policy: profile.gate || {},
     matrix: { browsers: [browser], viewports: [{ width: 1280, height: 720 }], locales: ["en-US"], auth_scope_ids: ["as_demo"] }
   };
@@ -103,6 +103,7 @@ function parseArgs(argv) {
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
     if (value === "--help" || value === "-h") result.help = true;
+    else if (value === "--allow-destructive") result["allow-destructive"] = true;
     else if (value.startsWith("--")) result[value.slice(2)] = argv[index + 1];
   }
   return result;
@@ -116,5 +117,5 @@ function writeAtomic(file, value) {
 }
 
 function printUsage() {
-  process.stdout.write("Usage: node tools/test-external-app.mjs --target <project-path> --url <base-url> [--plan <plan.json>] [--plan-mode auto|overlay|replace] [--tier smoke|fast|full] [--data-root <path>] [--browser chromium|firefox|webkit]\n");
+  process.stdout.write("Usage: node tools/test-external-app.mjs --target <project-path> --url <base-url> [--plan <plan.json>] [--plan-mode auto|overlay|replace] [--tier smoke|fast|full] [--data-root <path>] [--browser chromium|firefox|webkit] [--allow-destructive]\n");
 }

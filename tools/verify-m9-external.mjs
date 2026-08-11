@@ -29,7 +29,7 @@ function runCli(args) {
 const target = await todo.startTodoTarget();
 const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "autopw-m9.9-"));
 try {
-  const common = ["--target", path.join(root, "apps", "todo-fixture-target"), "--url", target.baseUrl, "--tier", "full", "--browser", "chromium", "--data-root", dataRoot];
+  const common = ["--target", path.join(root, "apps", "todo-fixture-target"), "--url", target.baseUrl, "--tier", "full", "--browser", "chromium", "--data-root", dataRoot, "--allow-destructive"];
   const automatic = await runCli(common);
   check("m9.9-external-auto-exits-pass", automatic.status === 0 && automatic.output.gate === "pass", automatic.stderr || automatic.output.message || "");
   check("m9.9-external-auto-uses-external-target", automatic.output.audit_status === "COMPLETE" && automatic.output.plan_mode === "auto", automatic.output.message || "");
