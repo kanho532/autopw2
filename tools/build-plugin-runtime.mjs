@@ -1,12 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 
 const root = path.resolve(import.meta.dirname, "..");
 const runtimeRoot = path.join(root, "packages", "codex-plugin-runtime");
 const outputRoot = path.join(runtimeRoot, "dist");
 const resourceRoot = path.join(runtimeRoot, "resources");
-const esbuild = await import(pathToFileURL(path.join(runtimeRoot, "node_modules", "esbuild", "lib", "main.js")).href);
+const esbuild = await import("esbuild");
 
 fs.rmSync(outputRoot, { recursive: true, force: true });
 fs.rmSync(resourceRoot, { recursive: true, force: true });
