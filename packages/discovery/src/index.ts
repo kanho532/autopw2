@@ -4,6 +4,7 @@ import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { chromium } from "playwright";
 import { BrowserNetworkGuard } from "@autopw/security";
+import { extractStaticEvidence } from "./adapters.js";
 
 export interface DiscoveryBudget {
   max_depth?: number;
@@ -22,7 +23,7 @@ export interface RouteMapping { file_glob: string; routes: string[]; features: s
 export interface DiscoveryInput { root: string; project_subpath?: string; route_map?: { ignore_globs?: string[]; mappings?: RouteMapping[] }; target_url?: string; budget?: DiscoveryBudget; }
 export interface DiscoveryCandidate { id: string; kind: string; route: string; feature_id: string; locator?: string; fact_id?: string; source_untrusted: true; }
 export interface ScenarioObservation { feature_id: string; scenario: string; observed: boolean; blocker: boolean; priority: "P0" | "P1" | "P2"; reason?: string; }
-export interface DiscoveryFact { fact_id: string; fact_type: "control" | "endpoint" | "validation" | "route" | "correlation"; source_ref?: { path: string; line?: number }; route?: string; confidence: number; [key: string]: unknown; }
+export interface DiscoveryFact { fact_id: string; fact_type: "control" | "endpoint" | "validation" | "route" | "correlation" | "schema" | "runtime_response" | "workflow"; source_ref?: { path: string; line?: number }; route?: string; confidence: number; [key: string]: unknown; }
 export interface DiscoveryResult {
   schema_version: "2.1";
   observations: Record<string, unknown>[];
@@ -87,8 +88,10 @@ export async function discover(input: DiscoveryInput): Promise<DiscoveryResult> 
     const routeValues = [...new Set(matched.flatMap((mapping) => mapping.routes))];
     const route = routeValues[0] || inferRoute(relative, source);
     const controls = extractControls(relative, source, route, featureIds, budget.max_controls_per_route);
-    const endpoints = extractEndpoints(relative, source, route, featureIds);
-    for (const fact of [...controls, ...extractValidationFacts(relative, source, route, featureIds)]) facts.set(fact.fact_id, fact);
+    const structured = extractStaticEvidence({ relative, source, route, featureIds });
+    const endpoints = structured.endpoints.length ? structured.endpoints : extractEndpoints(relative, source, route, featureIds);
+    const fallbackValidations = structured.adapter === "openapi" || structured.adapter === "json-schema" ? [] : extractValidationFacts(relative, source, route, featureIds);
+    for (const fact of [...controls, ...structured.facts, ...fallbackValidations]) facts.set(fact.fact_id, fact);
     for (const fact of endpoints) {
       const routeKey = String(fact.method || "") + "|" + String(fact.path_template || fact.route || "");
       if (!discoveredRoutes.has(routeKey) && discoveredRoutes.size >= budget.max_routes) {
@@ -181,12 +184,32 @@ async function discoverTarget(targetUrl: string, budget: typeof DEFAULT_BUDGET, 
   const context = await browser.newContext({ serviceWorkers: "block" }); resources.context = context; registerResources(resources); assertLiveBudget(signal, liveDeadline);
   const page = await context.newPage(); resources.page = page; registerResources(resources); assertLiveBudget(signal, liveDeadline);
   const observations: Record<string, unknown>[] = []; const candidates: DiscoveryCandidate[] = []; const facts: DiscoveryFact[] = []; const contactedOrigins = new Set<string>(); const blockedOrigins = new Set<string>(); let networkObservations = 0;
-  const recordRequest = (requestUrl: string): void => { if (networkObservations >= budget.max_network_observations) return; networkObservations += 1; try { const origin = new URL(requestUrl).origin; if (network.check(requestUrl).allowed) contactedOrigins.add(origin); else blockedOrigins.add(origin); } catch { /* untrusted request URL */ } };
-  page.on("request", (request) => recordRequest(request.url()));
+  const recordRequest = (requestUrl: string, method: string, resourceType: string): void => {
+    if (networkObservations >= budget.max_network_observations) return;
+    networkObservations += 1;
+    try {
+      const request = new URL(requestUrl);
+      if (network.check(requestUrl).allowed) {
+        contactedOrigins.add(request.origin);
+        if (["document", "fetch", "xhr"].includes(resourceType)) facts.push(makeFact("endpoint", ["runtime", method, request.pathname + request.search].join("|"), { method, path_template: request.pathname + request.search, route: request.pathname, operation: endpointOperation(method, request.pathname + request.search), feature_id: liveFeature(null, request.pathname), adapter: "runtime-network", source_kind: "RUNTIME", confidence: 0.96, source_ref: { path: "<live-network>" } }));
+      } else blockedOrigins.add(request.origin);
+    } catch { /* untrusted request URL */ }
+  };
+  page.on("request", (request) => recordRequest(request.url(), request.method(), request.resourceType()));
+  page.on("response", (response) => {
+    if (networkObservations >= budget.max_network_observations) return;
+    try {
+      const responseUrl = new URL(response.url());
+      if (!network.check(response.url()).allowed || !["document", "fetch", "xhr"].includes(response.request().resourceType())) return;
+      const method = response.request().method();
+      facts.push(makeFact("runtime_response", [method, responseUrl.pathname + responseUrl.search, response.status()].join("|"), { method, path_template: responseUrl.pathname + responseUrl.search, status: response.status(), feature_id: liveFeature(null, responseUrl.pathname), source_kind: "RUNTIME", confidence: 0.98, source_ref: { path: "<live-network>" } }));
+    } catch { /* ignore malformed response URL */ }
+  });
   await context.route("**/*", async (route) => { try { throwIfAborted(signal); await network.assertAllowedAsync(route.request().url()); await route.continue(); } catch { try { blockedOrigins.add(new URL(route.request().url()).origin); } catch { /* ignore malformed URL */ } await route.abort("blockedbyclient").catch(() => undefined); } });
   try {
     assertLiveBudget(signal, liveDeadline);
     await page.goto(targetUrl, { waitUntil: "domcontentloaded", timeout: Math.min(budget.route_timeout_ms, remainingMs(liveDeadline)) });
+    await page.waitForTimeout(Math.min(100, Math.max(1, remainingMs(liveDeadline) - 1)));
     assertLiveBudget(signal, liveDeadline);
     const controls = await page.locator("button,input,select,textarea,a").evaluateAll((nodes) => nodes.map((node) => ({ tag: node.nodeName.toLowerCase(), id: node.getAttribute("id"), role: node.getAttribute("role"), accessible_name: node.getAttribute("aria-label") || (node.textContent || "").trim().slice(0, 100), required: node.hasAttribute("required"), max_length: node.getAttribute("maxlength") }))).catch(() => []);
     assertLiveBudget(signal, liveDeadline);
@@ -204,7 +227,7 @@ async function discoverTarget(targetUrl: string, budget: typeof DEFAULT_BUDGET, 
 }
 
 function extractControls(relative: string, source: string, route: string, featureIds: string[], limit: number): DiscoveryFact[] {
-  const ids = [...source.matchAll(/\bid=["']([A-Za-z0-9_.:-]+)["']/g)].map((match) => match[1]).slice(0, limit); return ids.map((id) => { const tag = source.match(new RegExp("<([A-Za-z]+)[^>]*\\bid=[\\\"']" + escapeRegExp(id) + "[\\\"'][^>]*>", "i"))?.[1]?.toLowerCase() || "control"; const aria = source.match(new RegExp("aria-label=[\\\"']([^\\\"']+)[\\\"']", "i"))?.[1]; return makeFact("control", [relative, route, id].join("|"), { route, control_id: id, role: aria ? undefined : tag, accessible_name: aria, locator: "#" + id, feature_id: featureIds[0] || "unknown_feature", source_ref: { path: relative } }); });
+  const ids = [...source.matchAll(/\bid=["']([A-Za-z0-9_.:-]+)["']/g)].map((match) => match[1]).slice(0, limit); return ids.map((id) => { const tag = source.match(new RegExp("<([A-Za-z]+)[^>]*\\bid=[\\\"']" + escapeRegExp(id) + "[\\\"'][^>]*>", "i"))?.[1]?.toLowerCase() || "control"; const aria = source.match(new RegExp("aria-label=[\\\"']([^\\\"']+)[\\\"']", "i"))?.[1]; return makeFact("control", [relative, route, id].join("|"), { route, control_id: id, role: aria ? undefined : tag, accessible_name: aria, locator: "#" + id, feature_id: featureIds[0] || "unknown_feature", source_kind: "REGEX", confidence: 0.55, source_ref: { path: relative } }); });
 }
 function extractEndpoints(relative: string, source: string, route: string, featureIds: string[]): DiscoveryFact[] {
   const results: DiscoveryFact[] = []; const seen = new Set<string>(); const constants = staticStringConstants(source);
@@ -225,10 +248,10 @@ function staticStringConstants(source: string): Map<string, string> {
 function resolveTemplateEndpoint(value: string, constants: Map<string, string>): string {
   return value.replace(/\$\{([A-Za-z_$][\w$]*)\}/g, (_match, name: string) => constants.get(name) || ":" + name);
 }
-function endpointFact(relative: string, route: string, featureIds: string[], method: string, endpoint: string): DiscoveryFact { const normalized = normalizeEndpoint(endpoint); return makeFact("endpoint", [method, normalized].join("|"), { method, path_template: normalized, route, operation: endpointOperation(method, normalized), feature_id: featureIds[0] || "unknown_feature", source_ref: { path: relative } }); }
-function extractValidationFacts(relative: string, source: string, route: string, featureIds: string[]): DiscoveryFact[] { const result: DiscoveryFact[] = []; for (const match of source.matchAll(/maxlength=["'](\d+)["']/gi)) result.push(makeFact("validation", [relative, "maxLength", match[1]].join("|"), { field: "title", rule: "maxLength", value: Number(match[1]), route, feature_id: featureIds[0] || "unknown_feature", source_ref: { path: relative } })); if (/\brequired\b|aria-required=["']true["']/i.test(source)) result.push(makeFact("validation", relative + "|required|title", { field: "title", rule: "required", route, feature_id: featureIds[0] || "unknown_feature", source_ref: { path: relative } })); const optionValues = [...source.matchAll(/<option\b[^>]*\bvalue=["']([^"']+)["'][^>]*>/gi)].map((match) => match[1]).filter((value) => value.trim()); const priorities = [...source.matchAll(/(?:priority|PRIORITIES)[^\n]{0,180}(?:low|normal|high)/gi)].length; if (priorities || optionValues.length || /<option[^>]+value=["'](?:low|normal|high)["']/i.test(source)) result.push(makeFact("validation", relative + "|enum|priority", { field: "priority", rule: "enum", values: optionValues.length ? [...new Set(optionValues)] : ["low", "normal", "high"], route, feature_id: featureIds[0] || "unknown_feature", source_ref: { path: relative } })); return result; }
+function endpointFact(relative: string, route: string, featureIds: string[], method: string, endpoint: string): DiscoveryFact { const normalized = normalizeEndpoint(endpoint); return makeFact("endpoint", [relative, method, normalized, "regex"].join("|"), { method, path_template: normalized, route, operation: endpointOperation(method, normalized), feature_id: featureIds[0] || "unknown_feature", adapter: "regex-fallback", source_kind: "REGEX", confidence: 0.45, source_ref: { path: relative } }); }
+function extractValidationFacts(relative: string, source: string, route: string, featureIds: string[]): DiscoveryFact[] { const common = { route, feature_id: featureIds[0] || "unknown_feature", source_kind: "REGEX", confidence: 0.45, source_ref: { path: relative } }; const result: DiscoveryFact[] = []; for (const match of source.matchAll(/maxlength=["'](\d+)["']/gi)) result.push(makeFact("validation", [relative, "maxLength", match[1]].join("|"), { ...common, field: "title", rule: "maxLength", value: Number(match[1]) })); if (/\brequired\b|aria-required=["']true["']/i.test(source)) result.push(makeFact("validation", relative + "|required|title", { ...common, field: "title", rule: "required" })); const optionValues = [...source.matchAll(/<option\b[^>]*\bvalue=["']([^"']+)["'][^>]*>/gi)].map((match) => match[1]).filter((value) => value.trim()); const priorities = [...source.matchAll(/(?:priority|PRIORITIES)[^\n]{0,180}(?:low|normal|high)/gi)].length; if (priorities || optionValues.length || /<option[^>]+value=["'](?:low|normal|high)["']/i.test(source)) result.push(makeFact("validation", relative + "|enum|priority", { ...common, field: "priority", rule: "enum", values: optionValues.length ? [...new Set(optionValues)] : ["low", "normal", "high"] })); return result; }
 function correlateFacts(facts: DiscoveryFact[]): DiscoveryFact[] { const controls = facts.filter((fact) => fact.fact_type === "control"); const endpoints = facts.filter((fact) => fact.fact_type === "endpoint"); const result: DiscoveryFact[] = []; for (const control of controls) { const name = String(control.accessible_name || "").toLowerCase(); if (name === "search") for (const endpoint of endpoints.filter((item) => String(item.path_template).includes("q="))) result.push(makeFact("correlation", [String(control.fact_id), String(endpoint.fact_id)].join("|"), { relation: "control_api", control_fact_id: control.fact_id, endpoint_fact_id: endpoint.fact_id, feature_id: "todo.search", route: control.route, source_ref: { path: "<correlation>" } })); } return result; }
-function makeFact(fact_type: DiscoveryFact["fact_type"], key: string, fields: Record<string, unknown>): DiscoveryFact { return { fact_id: "fact_" + crypto.createHash("sha256").update(fact_type + "|" + key).digest("hex").slice(0, 16), fact_type, confidence: 0.9, ...fields }; }
+function makeFact(fact_type: DiscoveryFact["fact_type"], key: string, fields: Record<string, unknown>): DiscoveryFact { return { fact_id: "fact_" + crypto.createHash("sha256").update(fact_type + "|" + key).digest("hex").slice(0, 16), fact_type, confidence: typeof fields.confidence === "number" ? fields.confidence : 0.9, ...fields }; }
 function endpointOperation(method: string, endpoint: string): string { if (endpoint.includes("summary")) return "summary"; if (endpoint.includes("count")) return "count"; if (endpoint.includes("?q=") || endpoint.includes("${q}")) return "search"; return ({ GET: "read", POST: "create", PATCH: "update", PUT: "update", DELETE: "delete", OPTIONS: "cors" } as Record<string, string>)[method] || method.toLowerCase(); }
 function liveFeature(id: string | null, accessibleName: string | null): string { const value = ((id || "") + " " + (accessibleName || "")).toLowerCase(); if (/name|submit|required|success|form/.test(value)) return "demo_form"; if (accessibleName?.toLowerCase() === "search") return "todo.search"; return "demo_health"; }
 function normalizeEndpoint(endpoint: string): string { try { const url = new URL(endpoint, "http://discovery.invalid"); return url.pathname + (url.search ? url.search.replace(/%20/g, " ") : ""); } catch { return endpoint.split("?")[0] || endpoint; } }

@@ -48,6 +48,8 @@
     "verify:m9": "npm run verify:m9:plan-contract && npm run verify:m9:storage && npm run verify:m9:runner && npm run verify:m9:legacy-12 && npm run verify:m9:structured-discovery && npm run verify:m9:requirements && npm run verify:m9:generated-plan && npm run verify:m9:coverage-gate && npm run verify:m9:external",
     "verify:m10": "npm run build:m2 && node tools/verify-m10-release-hardening.mjs",
     "verify:m11:application-graph": "npm run build:m2 && node tools/verify-m11-application-graph.mjs",
+    "verify:m11:discovery-adapters": "npm run build:application-graph && tsc -p packages/security/tsconfig.json && tsc -p packages/discovery/tsconfig.json && node tools/verify-m11-discovery-adapters.mjs",
+    "verify:m11:phase2": "npm run verify:m11:discovery-adapters && npm run verify:m11:application-graph",
     "verify:m11": "npm run verify:m11:application-graph",
     "verify:v2.2": "npm run verify:v2.1 && npm run verify:m9 && npm run verify:m10",
     "build:plugin-runtime": "npm run build:m2 && node tools/build-plugin-runtime.mjs",

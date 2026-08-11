@@ -62,12 +62,21 @@ Exit criteria:
 
 ### Phase 2 — Generalized discovery adapters
 
-- Add OpenAPI/JSON Schema ingestion.
-- Replace the current fetch/Express regex path with AST adapters.
-- Add Axios, request-wrapper, NestJS, Fastify and Next.js adapters incrementally.
-- Record runtime request/response evidence.
-- Keep regex as a calibrated low-confidence fallback.
-- Fuse evidence by claim type; do not use a single source-precedence overwrite rule.
+Status: implemented in the third M11 delivery.
+
+Deliverables:
+
+- Ingest OpenAPI 3.x/Swagger and standalone JSON Schema documents from JSON or YAML.
+- Use TypeScript AST adapters for Fetch, Axios, request wrappers, Express-style routers, NestJS decorators, Fastify and Next.js route handlers.
+- Record bounded live document/fetch/XHR request and response facts as `RUNTIME` evidence.
+- Keep regex discovery only as a calibrated `0.45` confidence fallback when no structured endpoint adapter succeeds for a file.
+- Preserve AST, OpenAPI, runtime and fallback evidence independently and fuse matching claims in ApplicationGraph without source-precedence overwrite.
+
+Exit criteria:
+
+- A controlled multi-framework fixture exposes all expected endpoints and schema constraints.
+- OpenAPI and AST evidence for the same operation remain separately traceable on one graph node.
+- Live request and response observations are represented as runtime evidence.
 
 ### Phase 3 — Requirement Engine v2
 
