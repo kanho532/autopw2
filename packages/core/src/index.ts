@@ -220,7 +220,7 @@ export class AuditVerticalSlice {
     const trustSnapshot = isRecord(request.__trust_snapshot) ? request.__trust_snapshot : {};
     const destructiveAllowed = !this.production && trustSnapshot.destructive_actions === "allow";
     const derivation = deriveCoverage({
-      discovery, tier, diff,
+      discovery, application_graph: application.graph, evidence: application.evidence, tier, diff,
       matrix: { ...matrixFromRequest(request), profile_max_execution_instances: matrixBudget || undefined, host_max_execution_instances: Number(request.__host_max_execution_instances || 100) },
       destructive_allowed: destructiveAllowed,
       input_versions: {

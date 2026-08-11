@@ -1,16 +1,19 @@
 {
-  "requirements": [
-    "req_task_not_found",
-    "req_task_title_validation",
-    "req_task_summary",
-    "req_task_create_refresh",
-    "req_task_completed",
-    "req_task_delete",
-    "req_task_priority_enum",
-    "req_task_detail",
-    "req_task_patch_cors",
-    "req_task_patch_persistence",
-    "req_task_search",
-    "req_task_count"
+  "engine": "application-graph-v2",
+  "minimum_requirements": 13,
+  "required_intents": [
+    "boundary_rejected",
+    "count_consistent",
+    "cors_allows_operation",
+    "create_succeeds",
+    "delete_removes_entity",
+    "enum_validation",
+    "not_found_semantics",
+    "required_field_rejected",
+    "route_detail",
+    "route_loads",
+    "search_filters_results",
+    "summary_is_consistent",
+    "update_persists"
   ]
 }

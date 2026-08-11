@@ -38,6 +38,8 @@ export interface OperationNode extends GraphNodeBase {
   path_template?: string;
   operation_kinds: string[];
   feature_ids: string[];
+  request_schema_refs: string[];
+  response_statuses: number[];
   resource_id?: string;
 }
 
@@ -134,6 +136,8 @@ interface OperationAccumulator {
   node: OperationNode;
   operationKinds: Set<string>;
   featureIds: Set<string>;
+  requestSchemaRefs: Set<string>;
+  responseStatuses: Set<number>;
   evidenceRefs: Set<string>;
   factIds: Set<string>;
   confidenceTotal: number;
@@ -156,8 +160,8 @@ export function buildApplicationGraph(discovery: DiscoveryLike): GraphBuildResul
     let accumulator = operationAccumulators.get(key);
     if (!accumulator) {
       accumulator = {
-        node: { id: stableId("operation", key), kind: "operation", protocol: protocolOf(fact), method, path_template: pathTemplate, operation_kinds: [], feature_ids: [], evidence_refs: [], confidence: 0 },
-        operationKinds: new Set(), featureIds: new Set(), evidenceRefs: new Set(), factIds: new Set(), confidenceTotal: 0, confidenceCount: 0
+        node: { id: stableId("operation", key), kind: "operation", protocol: protocolOf(fact), method, path_template: pathTemplate, operation_kinds: [], feature_ids: [], request_schema_refs: [], response_statuses: [], evidence_refs: [], confidence: 0 },
+        operationKinds: new Set(), featureIds: new Set(), requestSchemaRefs: new Set(), responseStatuses: new Set(), evidenceRefs: new Set(), factIds: new Set(), confidenceTotal: 0, confidenceCount: 0
       };
       operationAccumulators.set(key, accumulator);
     }
@@ -165,6 +169,9 @@ export function buildApplicationGraph(discovery: DiscoveryLike): GraphBuildResul
     if (operationKind) accumulator.operationKinds.add(operationKind);
     const featureId = stringValue(fact.feature_id);
     if (featureId) accumulator.featureIds.add(featureId);
+    const requestSchemaRef = stringValue(fact.request_schema_ref);
+    if (requestSchemaRef) accumulator.requestSchemaRefs.add(requestSchemaRef);
+    for (const status of numberArray(fact.response_statuses)) accumulator.responseStatuses.add(status);
     accumulator.evidenceRefs.add(evidenceRef);
     accumulator.factIds.add(fact.fact_id);
     accumulator.confidenceTotal += confidenceOf(fact);
@@ -172,9 +179,22 @@ export function buildApplicationGraph(discovery: DiscoveryLike): GraphBuildResul
     operationByFact.set(fact.fact_id, accumulator.node.id);
   }
 
+  for (const fact of facts.filter((item) => item.fact_type === "runtime_response")) {
+    const method = upperString(fact.method) || "GET";
+    const pathTemplate = normalizePath(stringValue(fact.path_template) || "/");
+    const accumulator = operationAccumulators.get(method + "|" + pathTemplate);
+    if (!accumulator) continue;
+    accumulator.evidenceRefs.add(requiredEvidenceRef(evidenceByFact, fact.fact_id));
+    if (typeof fact.status === "number" && Number.isInteger(fact.status)) accumulator.responseStatuses.add(fact.status);
+    accumulator.confidenceTotal += confidenceOf(fact);
+    accumulator.confidenceCount += 1;
+  }
+
   const operations = [...operationAccumulators.values()].map((accumulator) => {
     accumulator.node.operation_kinds = [...accumulator.operationKinds].sort();
     accumulator.node.feature_ids = [...accumulator.featureIds].sort();
+    accumulator.node.request_schema_refs = [...accumulator.requestSchemaRefs].sort();
+    accumulator.node.response_statuses = [...accumulator.responseStatuses].sort((left, right) => left - right);
     accumulator.node.evidence_refs = [...accumulator.evidenceRefs].sort();
     accumulator.node.confidence = rounded(accumulator.confidenceTotal / accumulator.confidenceCount);
     if (accumulator.operationKinds.size > 1) {
@@ -214,8 +234,13 @@ export function buildApplicationGraph(discovery: DiscoveryLike): GraphBuildResul
     const candidates = explicitResourcePath
       ? [stableId("resource", pathWithoutQuery(normalizePath(explicitResourcePath)))]
       : featureId ? [...(resourceIdsByFeature.get(featureId) || [])].sort() : [];
-    const resourceId = candidates.length === 1 && resources.has(candidates[0]) ? candidates[0] : undefined;
-    if (candidates.length > 1) diagnostics.push(makeDiagnostic("AMBIGUOUS_FIELD_RESOURCE", "warning", `Field ${name} matches multiple resources for feature ${featureId}.`, candidates, [evidenceRef]));
+    const existingCandidates = candidates.filter((candidate) => resources.has(candidate));
+    const mutationCandidates = existingCandidates.filter((candidate) => {
+      const resource = resources.get(candidate);
+      return resource?.operation_ids.some((operationId) => ["POST", "PUT", "PATCH", "DELETE"].includes(operations.find((operation) => operation.id === operationId)?.method || ""));
+    });
+    const resourceId = existingCandidates.length === 1 ? existingCandidates[0] : mutationCandidates.length === 1 ? mutationCandidates[0] : undefined;
+    if (existingCandidates.length > 1 && !resourceId) diagnostics.push(makeDiagnostic("AMBIGUOUS_FIELD_RESOURCE", "warning", `Field ${name} matches multiple resources for feature ${featureId}.`, existingCandidates, [evidenceRef]));
     const key = (resourceId || "unbound") + "|" + name;
     const fieldId = stableId("field", key);
     if (resourceId && !explicitResourcePath) diagnostics.push(makeDiagnostic("WEAK_ASSOCIATION", "warning", `Field ${name} is associated to a resource only through feature ${featureId}.`, [fieldId, resourceId], [evidenceRef]));
@@ -408,7 +433,7 @@ function confidenceOf(value: Record<string, unknown>): number {
 function normalizePath(value: string): string {
   try {
     const parsed = new URL(value, "http://application-graph.invalid");
-    const pathname = parsed.pathname.replace(/\/{2,}/g, "/").replace(/\/$/, "") || "/";
+    const pathname = parsed.pathname.replace(/\{([^}]+)\}/g, ":$1").replace(/\/{2,}/g, "/").replace(/\/$/, "") || "/";
     return pathname + parsed.search.replace(/%20/g, " ");
   } catch {
     return (value.split("#")[0] || "/").replace(/\/{2,}/g, "/").replace(/\/$/, "") || "/";
@@ -419,6 +444,7 @@ function pathWithoutQuery(value: string): string { return value.split("?")[0] ||
 function stringValue(value: unknown): string { return typeof value === "string" ? value : ""; }
 function upperString(value: unknown): string { return stringValue(value).toUpperCase(); }
 function arrayStrings(value: unknown): string[] { return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []; }
+function numberArray(value: unknown): number[] { return Array.isArray(value) ? value.filter((item): item is number => typeof item === "number" && Number.isInteger(item)) : []; }
 function rounded(value: number): number { return Number(value.toFixed(4)); }
 function sortedUnique(values: string[]): string[] { return [...new Set(values)].sort(); }
 function uniqueObjects<T>(values: T[]): T[] { return [...new Map(values.map((value) => [stableJson(value), value])).values()].sort((left, right) => stableJson(left).localeCompare(stableJson(right))); }

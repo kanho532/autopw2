@@ -80,11 +80,23 @@ Exit criteria:
 
 ### Phase 3 — Requirement Engine v2
 
-- Derive requirements per operation, resource, constrained field and proven workflow.
-- Replace global first-match selection.
-- Split validation requirements into required, min/max length, enum, numeric boundary and format atoms.
-- Store operation/resource/field IDs, evidence, fixture strategy and oracle specification on each requirement.
-- Block requirements whose payload, fixture or oracle cannot be proven.
+Status: implemented in the fourth M11 delivery.
+
+Deliverables:
+
+- Replace the global first-match derivation function with a standalone ApplicationGraph-driven Requirement Engine v2.
+- Derive requirements inside each resource partition and cover every operation, constrained field and evidenced workflow.
+- Split validation requirements into required, min/max length, enum, numeric boundary, pattern and format atoms.
+- Store operation/resource/field/workflow IDs, Evidence references, payload strategy, fixture strategy and oracle specification on every requirement.
+- Keep legacy fact IDs in `source_refs` for planner compatibility while graph Evidence IDs remain authoritative provenance.
+- Block requirements whose payload synthesis, fixture operations or oracle response contract is not proven.
+
+Exit criteria:
+
+- Resources that expose identical HTTP methods never share operations, fields or fixtures.
+- Every graph operation maps to at least one deterministic requirement.
+- All constraint atoms are independently visible and traceable.
+- Missing payload, fixture or oracle evidence yields `BLOCKED` with a concrete reason.
 
 ### Phase 4 — Schema-driven payload and fixture synthesis
 

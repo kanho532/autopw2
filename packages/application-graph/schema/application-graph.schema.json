@@ -47,6 +47,8 @@
             "path_template": { "type": "string" },
             "operation_kinds": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
             "feature_ids": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+            "request_schema_refs": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+            "response_statuses": { "type": "array", "items": { "type": "integer", "minimum": 100, "maximum": 599 }, "uniqueItems": true },
             "resource_id": { "type": "string" }
           }
         }

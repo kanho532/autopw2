@@ -35,8 +35,8 @@ function extractOpenApi(input: StaticAdapterInput, document: Record<string, unkn
       const responseSchemaRefs = responseSchemaReferences(operationValue);
       endpoints.push(adapterFact("endpoint", [input.relative, method, pathTemplate, operationId].join("|"), {
         method, path_template: normalizeEndpoint(pathTemplate), route: normalizeEndpoint(pathTemplate), operation: operationKind(method, pathTemplate),
-        operation_id: operationId || undefined, feature_id: featureId, adapter: "openapi", request_schema_ref: schemaRefOf(operationValue.requestBody),
-        response_schema_refs: responseSchemaRefs, source_kind: "OPENAPI", confidence: 0.99, source_ref: { path: input.relative }
+        operation_id: operationId || undefined, feature_id: featureId, adapter: "openapi", request_schema_ref: requestSchemaReference(operationValue),
+        response_schema_refs: responseSchemaRefs, response_statuses: responseStatuses(operationValue), source_kind: "OPENAPI", confidence: 0.99, source_ref: { path: input.relative }
       }));
       if (requestSchema) facts.push(...schemaFacts(input.relative, requestSchema, featureId, normalizeEndpoint(pathTemplate), "OPENAPI", 0.99, document));
     }
@@ -237,6 +237,8 @@ function responseSchemaReferences(operation: Record<string, unknown>): string[] 
   }
   return [...refs].sort();
 }
+function requestSchemaReference(operation: Record<string, unknown>): string { if (!isRecord(operation.requestBody)) return ""; const direct = schemaRefOf(operation.requestBody); if (direct) return direct; if (isRecord(operation.requestBody.content)) for (const media of Object.values(operation.requestBody.content)) if (isRecord(media) && isRecord(media.schema) && typeof media.schema.$ref === "string") return media.schema.$ref; return ""; }
+function responseStatuses(operation: Record<string, unknown>): number[] { if (!isRecord(operation.responses)) return []; return Object.keys(operation.responses).map(Number).filter((status) => Number.isInteger(status) && status >= 100 && status <= 599).sort((a, b) => a - b); }
 
 function resolveSchema(value: Record<string, unknown>, document: Record<string, unknown>): Record<string, unknown> | undefined {
   const ref = stringValue(value.$ref);
@@ -289,7 +291,7 @@ function inlineScriptLiterals(sourceFile: ts.SourceFile): Array<{ pos: number; t
 function propertyAccessName(node: ts.Expression): string { return ts.isPropertyAccessExpression(node) ? node.name.text : ""; }
 function isEquality(kind: ts.SyntaxKind): boolean { return kind === ts.SyntaxKind.EqualsEqualsEqualsToken || kind === ts.SyntaxKind.EqualsEqualsToken; }
 function operationKind(method: string, endpoint: string): string { if (/summary/i.test(endpoint)) return "summary"; if (/count/i.test(endpoint)) return "count"; if (/\?.*(?:q|query|search)=/i.test(endpoint)) return "search"; return ({ GET: "read", POST: "create", PUT: "update", PATCH: "update", DELETE: "delete", OPTIONS: "cors" } as Record<string, string>)[method] || method.toLowerCase(); }
-function normalizeEndpoint(endpoint: string): string { try { const url = new URL(endpoint, "http://discovery.invalid"); return (url.pathname.replace(/\/$/, "") || "/") + url.search.replace(/%20/g, " "); } catch { return endpoint || "/"; } }
+function normalizeEndpoint(endpoint: string): string { try { const url = new URL(endpoint, "http://discovery.invalid"); return ((url.pathname.replace(/\{([^}]+)\}/g, ":$1").replace(/\/$/, "") || "/") + url.search.replace(/%20/g, " ")); } catch { return (endpoint || "/").replace(/\{([^}]+)\}/g, ":$1"); } }
 function collectionPath(value: string): string { return normalizeEndpoint(value).replace(/\?.*$/, "").replace(/\/:([^/]+).*$/, "") || "/"; }
 function featureFromPath(value: string): string { const segments = value.replace(/\?.*$/, "").split("/").filter(Boolean); return ([...segments].reverse().find((segment) => !segment.startsWith(":")) || path.basename(value, path.extname(value)) || "project_root").replace(/[^A-Za-z0-9_.:-]+/g, "_"); }
 function scriptKind(relative: string): ts.ScriptKind { if (/\.tsx$/i.test(relative)) return ts.ScriptKind.TSX; if (/\.jsx$/i.test(relative)) return ts.ScriptKind.JSX; if (/\.[cm]?js$/i.test(relative)) return ts.ScriptKind.JS; return ts.ScriptKind.TS; }

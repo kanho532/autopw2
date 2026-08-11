@@ -20,17 +20,18 @@ try {
   const second = derivation.deriveCoverage({ discovery: firstDiscovery, tier: "full" });
   const requirements = first.cdd.requirements;
   const ids = requirements.map((item) => item.requirement_id).sort();
-  check("m9.6-todo-requirement-golden-is-covered", expected.requirements.every((id) => ids.includes(id)) && ids.length === expected.requirements.length);
+  const intents = new Set(requirements.map((item) => item.intent));
+  check("m9.6-todo-requirement-golden-is-covered", expected.engine === "application-graph-v2" && expected.required_intents.every((intent) => intents.has(intent)) && requirements.length >= expected.minimum_requirements);
   check("m9.6-requirement-ids-are-stable", JSON.stringify(ids) === JSON.stringify(second.cdd.requirements.map((item) => item.requirement_id).sort()));
   check("m9.6-requirement-case-links-are-complete", Object.keys(first.cdd.requirement_case_links).length === requirements.length && requirements.every((item) => first.cdd.requirement_case_links[item.requirement_id]?.length === 1));
   check("m9.6-coverage-layers-are-present", ["required", "planned", "executable", "executed", "passed", "evidence_complete"].every((key) => typeof first.cdd.coverage[key] === "number"));
   check("m9.6-required-is-not-planned-before-planner", first.cdd.coverage.required === requirements.length && first.cdd.coverage.planned === 0 && first.cdd.coverage.executable === 0);
   const blocked = derivation.deriveCoverage({ discovery: firstDiscovery, tier: "full", destructive_allowed: false });
-  check("m9.6-destructive-policy-blocks-delete", blocked.cdd.requirements.find((item) => item.requirement_id === "req_task_delete")?.status === "BLOCKED" && blocked.cdd.requirements.find((item) => item.requirement_id === "req_task_delete")?.reason === "DESTRUCTIVE_NOT_ALLOWED");
+  check("m9.6-destructive-policy-blocks-delete", blocked.cdd.requirements.find((item) => item.intent === "delete_removes_entity")?.status === "BLOCKED" && blocked.cdd.requirements.find((item) => item.intent === "delete_removes_entity")?.reason === "DESTRUCTIVE_NOT_ALLOWED");
   const missingOracleDiscovery = structuredClone(firstDiscovery);
   missingOracleDiscovery.observations = missingOracleDiscovery.observations.filter((item) => !(item.kind === "fact" && item.fact_type === "endpoint" && item.operation === "count"));
   const missingOracle = derivation.deriveRequirements({ discovery: missingOracleDiscovery, tier: "full" });
-  check("m9.6-missing-fact-does-not-invent-requirement", !missingOracle.some((item) => item.requirement_id === "req_task_count"));
+  check("m9.6-missing-fact-does-not-invent-requirement", !missingOracle.some((item) => item.intent === "count_consistent"));
   check("m9.6-p0-denominator-retains-blocked-requirements", blocked.cdd.coverage.p0_required >= blocked.cdd.coverage.p0_executable && blocked.cdd.coverage.p0_required > 0);
 } finally { await target.close(); }
 
