@@ -2,15 +2,16 @@
 
 AutoPW is a Profile-driven Web quality audit engine delivered as a Codex local MCP plugin. The MCP Server is the sole primary public entry; the maintenance CLI and internal Core API are not the audit path.
 
-The repository has completed **M9.0–M9.9** and **M10 Release Hardening**. The default Core engines are now `plan_engine=declarative` and `discovery_engine=structured`. The Fixture/legacy pair remains available only as an explicit compatibility lane for one release cycle.
+The repository has completed **M9.0–M9.9** and **M10 Release Hardening**. Structured Discovery is now the sole Discovery implementation; the default Core plan engine is `plan_engine=declarative`. The Fixture plan engine remains available only as an explicit compatibility lane for one release cycle.
 
 Earlier **M8 release hardening** established multi-browser execution, release compatibility, performance, fault, retention, and bounded soak gates. M10 extends that baseline with the generated-plan pipeline as the trusted default.
 
 ## Development language
 
-M10 switches the trusted Core default to declarative planning and structured
-discovery. Existing M0–M8 fixture acceptance continues through an explicit
-legacy compatibility configuration in the host harness.
+M10 switches the trusted Core default to declarative planning. Structured
+Discovery completed its migration in M9.5 and is no longer a mode flag. Existing
+M0–M8 fixture acceptance continues through an explicit Fixture plan-engine
+compatibility configuration in the host harness.
 
 The primary implementation language is **TypeScript** (`.ts`) with strict type checking. JavaScript modules are limited to generators and verification harnesses; new runtime code belongs in the TypeScript packages and is consumed through the build output.
 

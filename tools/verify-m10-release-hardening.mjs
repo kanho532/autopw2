@@ -27,7 +27,8 @@ async function waitForMcpResult(server, runId) { for (let attempt = 0; attempt <
 const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "autopw-m10-"));
 const target = await todo.startTodoTarget();
 try {
-  check("m10-default-engine-is-declarative-structured", core.DEFAULT_ENGINE_MODES.plan_engine === "declarative" && core.DEFAULT_ENGINE_MODES.discovery_engine === "structured");
+  check("m10-default-plan-engine-is-declarative", core.DEFAULT_ENGINE_MODES.plan_engine === "declarative");
+  check("m10-discovery-engine-migration-is-explicit", (() => { try { core.resolveEngineModes({ discovery_engine: "legacy" }); return false; } catch (error) { return error?.code === "DISCOVERY_ENGINE_RETIRED"; } })());
   const targetRoot = path.join(root, "apps", "todo-fixture-target");
   const runtime = new core.AuditVerticalSlice({ root: targetRoot, dataRoot, targetProvider: new core.ExternalTargetProvider(target.baseUrl) });
   const first = await runtime.execute({ run: snapshot("run_m10_default_a"), request: request(target.baseUrl), onPhase: () => undefined });
@@ -59,7 +60,7 @@ try {
     const mcpCoveragePath = path.join(mcpDataRoot, "runs", mcpRunId, "requirement-coverage.json");
     const mcpMetricsPath = path.join(mcpDataRoot, "runs", mcpRunId, "release-metrics.json");
     const mcpMetrics = fs.existsSync(mcpMetricsPath) ? JSON.parse(fs.readFileSync(mcpMetricsPath, "utf8")) : {};
-    check("m10-mcp-default-declarative-structured-e2e", accepted.kind === "accepted" && mcpResult.kind === "ok" && mcpResult.gate === "pass" && mcpResult.audit_status === "COMPLETE" && fs.existsSync(mcpPlanPath) && fs.existsSync(mcpCoveragePath) && mcpMetrics.engine_modes?.plan_engine === "declarative" && mcpMetrics.engine_modes?.discovery_engine === "structured");
+    check("m10-mcp-default-declarative-e2e", accepted.kind === "accepted" && mcpResult.kind === "ok" && mcpResult.gate === "pass" && mcpResult.audit_status === "COMPLETE" && fs.existsSync(mcpPlanPath) && fs.existsSync(mcpCoveragePath) && mcpMetrics.engine_modes?.plan_engine === "declarative" && !Object.hasOwn(mcpMetrics.engine_modes || {}, "discovery_engine"));
   } finally { await mcpServer.stop(); }
 
   const fixtureRuntime = new core.AuditVerticalSlice({ root, dataRoot, engineModes: core.LEGACY_ENGINE_MODES });

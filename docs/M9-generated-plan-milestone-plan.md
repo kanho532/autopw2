@@ -16,7 +16,8 @@ The baseline records:
 - the three Fixture cases and `pass`, `fail`, and `incomplete` outcomes;
 - `execution-results.json`, `completion-audit.json`, `report.md`, evidence
   handles, and the fast matrix projection;
-- the default trusted engine modes: `fixture` + `legacy`.
+- the M9.0 baseline modes: Fixture plan engine + legacy Discovery (historical;
+  Structured Discovery became the sole implementation in M9.5).
 
 Run:
 

@@ -7,7 +7,7 @@
 - The fixture host supplies the approved origin snapshot. Deployments must ensure the execution adapter receives the resolved host policy rather than a target-derived allowlist.
 # M10 Known Limitations
 
-- The fixture/legacy compatibility lane is retained temporarily for M0–M8
+- The Fixture plan compatibility lane is retained temporarily for M0–M8
   regression verification and will be removed in a later major release.
 - Manual oracle bindings prove trusted authorship and structural linkage; they
   do not attempt to prove natural-language semantic equivalence.

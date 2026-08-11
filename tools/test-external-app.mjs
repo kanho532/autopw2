@@ -44,7 +44,7 @@ async function runExternal(options) {
     root: targetRoot,
     dataRoot,
     targetProvider: new core.ExternalTargetProvider(targetUrl.toString()),
-    engineModes: { plan_engine: "declarative", discovery_engine: "structured" }
+    engineModes: { plan_engine: "declarative" }
   });
   const runId = "run_external_" + Date.now().toString(36) + "_" + process.pid;
   const run = {

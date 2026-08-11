@@ -69,7 +69,7 @@ export async function newHarness({ retention, budgets, stepMs, fixtureVariant, d
   fs.mkdirSync(dataRoot, { recursive: true });
   const hosts = { ws_demo: HERE_TRUSTED, ws_pr: HERE_UNTRUSTED_PR };
   const progress: JsonObject[] = [];
-  const server = new McpServer({ root, dataRoot, retention, budgets, stepMs, fixtureVariant, engineModes: engineModes || { plan_engine: "fixture", discovery_engine: "legacy" }, logger, progressSink: (event) => progress.push(event as unknown as JsonObject) });
+  const server = new McpServer({ root, dataRoot, retention, budgets, stepMs, fixtureVariant, engineModes: engineModes || { plan_engine: "fixture" }, logger, progressSink: (event) => progress.push(event as unknown as JsonObject) });
   for (const [workspace, context] of Object.entries(hosts)) server.registerHostContext(workspace, context);
   server.start();
   return { server, dataRoot, hosts, progress, cleanup: async () => { await server.stop(); fs.rmSync(dataRoot, { recursive: true, force: true }); } };

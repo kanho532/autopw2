@@ -2,8 +2,9 @@
 
 Status: Complete
 
-M10 makes the declarative TestPlan and structured Discovery engines the trusted
-Core defaults. The M0–M8 fixture path remains an explicit, deprecated
+M10 makes declarative TestPlan execution the trusted Core default. Structured
+Discovery is the sole Discovery implementation after M9.5; it is not a runtime
+mode flag. The M0–M8 Fixture plan path remains an explicit, deprecated
 compatibility lane for one release cycle.
 
 Release hardening adds a default-path run, dual-run compatibility evidence,

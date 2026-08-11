@@ -17,11 +17,10 @@ export interface VerticalRun extends RunSnapshot { phase: string; }
 export interface VerticalResult { gate: "incomplete" | "infra" | "fail" | "unstable" | "pass"; audit_status: "COMPLETE" | "INCOMPLETE"; results_ref: ArtifactRef; report_ref: ArtifactRef; gate_summary: Record<string, unknown>; cases: Record<string, unknown>[]; evidence_refs: ArtifactRef[]; }
 export interface CoveragePreview { discovery: Record<string, unknown>; derivation: DerivationResult; diff: DiffResult; result_ref?: ArtifactRef; summary: Record<string, unknown>; }
 export type PlanEngineMode = "fixture" | "declarative";
-export type DiscoveryEngineMode = "legacy" | "structured";
-export interface EngineModes { plan_engine: PlanEngineMode; discovery_engine: DiscoveryEngineMode; }
-/** M10 release default. The legacy pair remains an explicit compatibility mode for one release cycle. */
-export const DEFAULT_ENGINE_MODES: Readonly<EngineModes> = Object.freeze({ plan_engine: "declarative", discovery_engine: "structured" });
-export const LEGACY_ENGINE_MODES: Readonly<EngineModes> = Object.freeze({ plan_engine: "fixture", discovery_engine: "legacy" });
+/** Structured Discovery is the sole implementation after M9.5; only plan execution has a compatibility mode. */
+export interface EngineModes { plan_engine: PlanEngineMode; }
+export const DEFAULT_ENGINE_MODES: Readonly<EngineModes> = Object.freeze({ plan_engine: "declarative" });
+export const LEGACY_ENGINE_MODES: Readonly<EngineModes> = Object.freeze({ plan_engine: "fixture" });
 
 export interface TargetSession { mode: "managed" | "external"; baseUrl: string; close(): Promise<void>; }
 export interface TargetProvider { open(): Promise<TargetSession>; }
@@ -44,12 +43,11 @@ export class ExternalTargetProvider implements TargetProvider {
   async open(): Promise<TargetSession> { return { mode: "external", baseUrl: this.baseUrl, close: async () => undefined }; }
 }
 
-export function resolveEngineModes(input?: Partial<EngineModes>): EngineModes {
+export function resolveEngineModes(input?: Partial<EngineModes> & { discovery_engine?: unknown }): EngineModes {
+  if (input && Object.hasOwn(input, "discovery_engine")) throw Object.assign(new Error("discovery_engine was retired after the structured discovery migration"), { code: "DISCOVERY_ENGINE_RETIRED" });
   const plan_engine = input?.plan_engine ?? DEFAULT_ENGINE_MODES.plan_engine;
-  const discovery_engine = input?.discovery_engine ?? DEFAULT_ENGINE_MODES.discovery_engine;
   if (plan_engine !== "fixture" && plan_engine !== "declarative") throw Object.assign(new Error("invalid plan engine mode"), { code: "INVALID_PLAN_ENGINE_MODE" });
-  if (discovery_engine !== "legacy" && discovery_engine !== "structured") throw Object.assign(new Error("invalid discovery engine mode"), { code: "INVALID_DISCOVERY_ENGINE_MODE" });
-  return { plan_engine, discovery_engine };
+  return { plan_engine };
 }
 interface PlannerArtifacts { input: PlannerInput; output: PlannerOutput; template: PlanTemplate; audit: Record<string, unknown>; requirements: TestRequirement[]; candidateCatalog?: CandidateCatalog; }
 type PhaseCallback = (phase: string, progress: number, nextAction: string) => void;

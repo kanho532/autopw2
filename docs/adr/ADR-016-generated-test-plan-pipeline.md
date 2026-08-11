@@ -56,3 +56,11 @@ the frozen boundary. M10 owns default switching and release cleanup.
 If a later milestone proves a frozen contract unsafe or unimplementable, it
 must use a new ADR, version the affected contract, regenerate artifacts, and
 rerun every affected acceptance gate. Silent deviation is forbidden.
+
+## M10 migration update
+
+M9.5 completed the Structured Discovery migration. M10 retires
+`DiscoveryEngineMode` instead of exposing a no-op compatibility flag: supplying
+`discovery_engine` now fails with `DISCOVERY_ENGINE_RETIRED`. Only
+`PlanEngineMode` remains configurable, with Fixture retained for one release
+cycle as the explicit compatibility path.
