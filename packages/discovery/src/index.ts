@@ -5,6 +5,8 @@ import { performance } from "node:perf_hooks";
 import { chromium } from "playwright";
 import { BrowserNetworkGuard } from "@autopw/security";
 import { extractStaticEvidence } from "./adapters.js";
+import { exploreLiveTarget, type LiveExplorationPolicy } from "./live-explorer.js";
+export type { LiveExplorationPolicy } from "./live-explorer.js";
 
 export interface DiscoveryBudget {
   max_depth?: number;
@@ -17,24 +19,25 @@ export interface DiscoveryBudget {
   max_routes?: number;
   max_controls_per_route?: number;
   max_network_observations?: number;
+  max_interactions_per_route?: number;
   allowed_origins?: string[];
 }
 export interface RouteMapping { file_glob: string; routes: string[]; features: string[]; propagate?: boolean; }
-export interface DiscoveryInput { root: string; project_subpath?: string; route_map?: { ignore_globs?: string[]; mappings?: RouteMapping[] }; target_url?: string; budget?: DiscoveryBudget; }
+export interface DiscoveryInput { root: string; project_subpath?: string; route_map?: { ignore_globs?: string[]; mappings?: RouteMapping[] }; target_url?: string; budget?: DiscoveryBudget; live_exploration_policy?: LiveExplorationPolicy; }
 export interface DiscoveryCandidate { id: string; kind: string; route: string; feature_id: string; locator?: string; fact_id?: string; source_untrusted: true; }
 export interface ScenarioObservation { feature_id: string; scenario: string; observed: boolean; blocker: boolean; priority: "P0" | "P1" | "P2"; reason?: string; }
-export interface DiscoveryFact { fact_id: string; fact_type: "control" | "endpoint" | "field" | "validation" | "route" | "correlation" | "schema" | "runtime_response" | "workflow"; source_ref?: { path: string; line?: number }; route?: string; confidence: number; [key: string]: unknown; }
+export interface DiscoveryFact { fact_id: string; fact_type: "control" | "endpoint" | "field" | "validation" | "route" | "correlation" | "schema" | "runtime_response" | "workflow" | "interaction" | "ui_mutation"; source_ref?: { path: string; line?: number }; route?: string; confidence: number; [key: string]: unknown; }
 export interface DiscoveryResult {
   schema_version: "2.1";
   observations: Record<string, unknown>[];
   candidates: DiscoveryCandidate[];
   scenario_observations: ScenarioObservation[];
-  budget: { max_depth: number; max_files: number; max_directories: number; timeout_ms: number; static_timeout_ms: number; live_timeout_ms: number; route_timeout_ms: number; max_routes: number; max_controls_per_route: number; max_network_observations: number; files_scanned: number; budget_exceeded: boolean; blockers: string[] };
+  budget: { max_depth: number; max_files: number; max_directories: number; timeout_ms: number; static_timeout_ms: number; live_timeout_ms: number; route_timeout_ms: number; max_routes: number; max_controls_per_route: number; max_network_observations: number; max_interactions_per_route: number; files_scanned: number; budget_exceeded: boolean; blockers: string[] };
   network: { allowed_origins: string[]; contacted_origins: string[]; blocked_origins: string[] };
   metrics: { discovery_wall_ms: number; static_discovery_wall_ms: number; live_discovery_wall_ms: number; correlation_cpu_ms: number; total_discovery_wall_ms: number };
 }
 
-const DEFAULT_BUDGET = { max_depth: 5, max_files: 200, max_directories: 5000, timeout_ms: 3000, static_timeout_ms: 3000, live_timeout_ms: 3000, route_timeout_ms: 1000, max_routes: 100, max_controls_per_route: 24, max_network_observations: 100 };
+const DEFAULT_BUDGET = { max_depth: 5, max_files: 200, max_directories: 5000, timeout_ms: 3000, static_timeout_ms: 3000, live_timeout_ms: 3000, route_timeout_ms: 1000, max_routes: 100, max_controls_per_route: 24, max_network_observations: 100, max_interactions_per_route: 8 };
 const IGNORED = new Set([".git", "node_modules", "dist", "build", ".autopw"]);
 
 interface WalkState { files: string[]; directories: number; }
@@ -125,7 +128,7 @@ export async function discover(input: DiscoveryInput): Promise<DiscoveryResult> 
     try {
       const originGuard = new BrowserNetworkGuard(input.budget?.allowed_origins?.length ? input.budget.allowed_origins : [new URL(input.target_url).origin]);
       if (!originGuard.check(input.target_url).allowed) throw new Error("DISCOVERY_ORIGIN_NOT_ALLOWED");
-      const targetObservation = await discoverTarget(input.target_url, budget, input.budget?.allowed_origins || [], discoveredRoutes, liveStarted + budget.live_timeout_ms, liveController.signal, (resources) => {
+      const targetObservation = await discoverTarget(input.target_url, budget, input.budget?.allowed_origins || [], discoveredRoutes, liveStarted + budget.live_timeout_ms, liveController.signal, input.live_exploration_policy, (resources) => {
         Object.assign(liveResources, resources);
         if (liveController.signal.aborted) void closeLiveResources(liveResources);
       });
@@ -163,7 +166,7 @@ export async function discover(input: DiscoveryInput): Promise<DiscoveryResult> 
   const allowed = input.budget?.allowed_origins || [];
   return {
     schema_version: "2.1", observations, candidates: dedupeCandidates(candidates), scenario_observations,
-    budget: { max_depth: budget.max_depth, max_files: budget.max_files, max_directories: budget.max_directories, timeout_ms: budget.timeout_ms, static_timeout_ms: budget.static_timeout_ms, live_timeout_ms: budget.live_timeout_ms, route_timeout_ms: budget.route_timeout_ms, max_routes: budget.max_routes, max_controls_per_route: budget.max_controls_per_route, max_network_observations: budget.max_network_observations, files_scanned: filesScanned, budget_exceeded: budgetExceeded, blockers },
+    budget: { max_depth: budget.max_depth, max_files: budget.max_files, max_directories: budget.max_directories, timeout_ms: budget.timeout_ms, static_timeout_ms: budget.static_timeout_ms, live_timeout_ms: budget.live_timeout_ms, route_timeout_ms: budget.route_timeout_ms, max_routes: budget.max_routes, max_controls_per_route: budget.max_controls_per_route, max_network_observations: budget.max_network_observations, max_interactions_per_route: budget.max_interactions_per_route, files_scanned: filesScanned, budget_exceeded: budgetExceeded, blockers },
     network: { allowed_origins: allowed, contacted_origins: [...contactedOrigins].sort(), blocked_origins: [...blockedOrigins].sort() },
     metrics: { discovery_wall_ms: Math.max(0, Math.round(totalWall)), static_discovery_wall_ms: Math.max(0, Math.round(staticWall)), live_discovery_wall_ms: Math.max(0, Math.round(liveWall)), correlation_cpu_ms: Math.max(0, Math.round(correlationCpu)), total_discovery_wall_ms: Math.max(0, Math.round(totalWall)) }
   };
@@ -176,7 +179,11 @@ export function resolveProjectRoot(root: string, projectSubpath: string): string
 }
 
 interface TargetDiscovery { observations: Record<string, unknown>[]; candidates: DiscoveryCandidate[]; facts: DiscoveryFact[]; scenario_observations: ScenarioObservation[]; contactedOrigins: Set<string>; blockedOrigins: Set<string>; }
-async function discoverTarget(targetUrl: string, budget: typeof DEFAULT_BUDGET, allowedOrigins: string[], discoveredRoutes: Set<string>, liveDeadline: number, signal: AbortSignal, registerResources: (resources: LiveResources) => void): Promise<TargetDiscovery> {
+async function discoverTarget(targetUrl: string, budget: typeof DEFAULT_BUDGET, allowedOrigins: string[], discoveredRoutes: Set<string>, liveDeadline: number, signal: AbortSignal, policy: LiveExplorationPolicy | undefined, registerResources: (resources: LiveResources) => void): Promise<TargetDiscovery> {
+  if (budget.max_interactions_per_route === 0) return discoverTargetSinglePage(targetUrl, budget, allowedOrigins, discoveredRoutes, liveDeadline, signal, registerResources);
+  return exploreLiveTarget({ targetUrl, budget, allowedOrigins, discoveredRoutes, deadline: liveDeadline, signal, policy, registerResources });
+}
+async function discoverTargetSinglePage(targetUrl: string, budget: typeof DEFAULT_BUDGET, allowedOrigins: string[], discoveredRoutes: Set<string>, liveDeadline: number, signal: AbortSignal, registerResources: (resources: LiveResources) => void): Promise<TargetDiscovery> {
   assertLiveBudget(signal, liveDeadline);
   const url = new URL(targetUrl); const network = new BrowserNetworkGuard(allowedOrigins.length > 0 ? allowedOrigins : [url.origin]); await network.assertAllowedAsync(url.toString());
   assertLiveBudget(signal, liveDeadline);

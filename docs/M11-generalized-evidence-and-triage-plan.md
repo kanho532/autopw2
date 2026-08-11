@@ -158,10 +158,22 @@ Exit criteria:
 
 ### Phase 7 — Safe live UI exploration
 
+Status: implemented in the eighth M11 delivery.
+
+Deliverables:
+
 - Implement bounded BFS over routes and read-only interactions.
 - Deduplicate by route and DOM/state fingerprint.
 - Associate control, interaction, network operation, response and UI mutation evidence.
 - Do not submit mutating controls without an explicit trusted policy and isolated fixture strategy.
+
+Exit criteria:
+
+- Route depth, route count, controls, interactions, network observations and wall time are independently bounded.
+- Duplicate links and repeated DOM states do not expand the exploration queue repeatedly.
+- Every explored interaction records before/after state and related runtime network evidence when present.
+- Mutating controls are visible as evidence but skipped by the default policy.
+- Mutation exploration requires all three signals: trusted policy, explicit mutation permission and an isolated fixture strategy.
 
 ### Phase 8 — Generalization acceptance and rollout
 
