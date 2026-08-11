@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopw.dev/schemas/2.1/mcp-result-view.schema.json",
+  "title": "Final result after GATED",
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "const": "ok"
+    },
+    "schema_version": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/schemaVersion"
+    },
+    "run_id": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/runId"
+    },
+    "phase": {
+      "type": "string",
+      "const": "GATED"
+    },
+    "gate": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/enum/gate"
+    },
+    "audit_status": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/enum/auditStatus"
+    },
+    "results_ref": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/artifactRef"
+    },
+    "report_ref": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/artifactRef"
+    },
+    "gate_summary": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "pagination": {
+      "type": "object",
+      "properties": {
+        "page": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "page_size": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "total_items": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total_pages": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "has_more": {
+          "type": "boolean"
+        },
+        "next_page": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        }
+      },
+      "required": [
+        "page",
+        "page_size",
+        "total_items",
+        "total_pages",
+        "has_more",
+        "next_page"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "kind",
+    "schema_version",
+    "run_id",
+    "phase",
+    "gate",
+    "audit_status",
+    "results_ref"
+  ],
+  "additionalProperties": false
+}

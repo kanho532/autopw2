@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopw.dev/schemas/2.1/execution-manifest.schema.json",
+  "title": "Batches and execution instances",
+  "type": "object",
+  "properties": {
+    "batches": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "batch_id": {
+            "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/batchId"
+          },
+          "tier": {
+            "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/enum/baseTier"
+          },
+          "browser": {
+            "type": "string",
+            "description": ""
+          },
+          "viewport": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "locale": {
+            "type": "string",
+            "description": ""
+          },
+          "auth_scope_id": {
+            "type": "string",
+            "description": ""
+          }
+        },
+        "required": [
+          "batch_id",
+          "tier"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "instances": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "execution_id": {
+            "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/executionId"
+          },
+          "case_id": {
+            "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/caseId"
+          },
+          "batch_id": {
+            "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/batchId"
+          },
+          "status": {
+            "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/enum/executionStatus"
+          }
+        },
+        "required": [
+          "execution_id",
+          "case_id",
+          "batch_id",
+          "status"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "batches",
+    "instances"
+  ],
+  "additionalProperties": false
+}

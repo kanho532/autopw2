@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopw.dev/schemas/2.1/derivation.schema.json",
+  "title": "Coverage derivation",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/schemaVersion"
+    },
+    "skeleton": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "case_id": {
+            "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/caseId"
+          },
+          "feature_id": {
+            "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/featureId"
+          },
+          "scenario": {
+            "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/enum/scenario"
+          },
+          "priority": {
+            "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/enum/priority"
+          },
+          "effective_tier": {
+            "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/enum/baseTier"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PLANNED",
+              "BLOCKED",
+              "NOT_APPLICABLE",
+              "TIER_SKIPPED"
+            ]
+          },
+          "matrix_cell": {
+            "type": "string",
+            "description": ""
+          },
+          "blocked": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string",
+            "description": "objective blocker reason"
+          }
+        },
+        "required": [
+          "case_id",
+          "feature_id",
+          "scenario",
+          "effective_tier"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "matrix": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "p0_required_total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "p0_coverage_pct": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 100
+    },
+    "input_versions": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "projection": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "cdd": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "required": [
+    "schema_version",
+    "skeleton"
+  ],
+  "additionalProperties": false
+}

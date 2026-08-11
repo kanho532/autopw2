@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopw.dev/schemas/2.1/host-context-snapshot.schema.json",
+  "title": "Trusted host context snapshot",
+  "type": "object",
+  "properties": {
+    "workspace_id": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/workspaceId"
+    },
+    "workspace_realpath": {
+      "type": "string",
+      "description": "resolved realpath"
+    },
+    "trust_mode": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/enum/trustMode"
+    },
+    "auth_scope_id": {
+      "type": "string",
+      "description": "Auth scope id"
+    },
+    "caller": {
+      "type": "string",
+      "description": "Caller identity"
+    },
+    "policy_version": {
+      "type": "string",
+      "description": "Server policy version"
+    },
+    "installation_id": {
+      "type": "string",
+      "description": "Installation id"
+    },
+    "max_execution_instances_per_run": {
+      "type": "integer",
+      "minimum": 1
+    }
+  },
+  "required": [
+    "workspace_id",
+    "workspace_realpath",
+    "trust_mode",
+    "caller"
+  ],
+  "additionalProperties": true
+}

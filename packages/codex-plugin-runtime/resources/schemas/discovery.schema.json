@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopw.dev/schemas/2.1/discovery.schema.json",
+  "title": "Discovery output",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/schemaVersion"
+    },
+    "observations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "scenario_observations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "feature_id": {
+            "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/featureId"
+          },
+          "scenario": {
+            "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/enum/scenario"
+          },
+          "observed": {
+            "type": "boolean"
+          },
+          "blocker": {
+            "type": "boolean"
+          },
+          "priority": {
+            "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/enum/priority"
+          },
+          "reason": {
+            "type": "string",
+            "description": "objective blocker reason"
+          }
+        },
+        "required": [
+          "feature_id",
+          "scenario",
+          "observed"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "network": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "required": [
+    "schema_version",
+    "observations",
+    "candidates",
+    "scenario_observations"
+  ],
+  "additionalProperties": false
+}

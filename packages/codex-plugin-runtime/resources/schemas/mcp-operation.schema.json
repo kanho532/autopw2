@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopw.dev/schemas/2.1/mcp-operation.schema.json",
+  "title": "MCP Operation record (preview/resume/cancel/cleanup)",
+  "type": "object",
+  "properties": {
+    "operation_id": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/operationId"
+    },
+    "tool": {
+      "type": "string",
+      "description": "Tool name that created the operation"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "run",
+        "preview",
+        "maintenance"
+      ]
+    },
+    "status": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/enum/operationStatus"
+    },
+    "workspace_id": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/workspaceId"
+    },
+    "client_request_id": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/clientRequestId"
+    },
+    "run_id": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/runId"
+    },
+    "result_ref": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/artifactRef"
+    },
+    "created_at": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/isoTimestamp"
+    },
+    "updated_at": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/isoTimestamp"
+    },
+    "expires_at": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/isoTimestamp"
+    }
+  },
+  "required": [
+    "operation_id",
+    "tool",
+    "status",
+    "workspace_id",
+    "created_at",
+    "updated_at"
+  ],
+  "additionalProperties": true
+}

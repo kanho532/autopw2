@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopw.dev/schemas/2.1/planner-input.schema.json",
+  "title": "Planner input",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/schemaVersion"
+    },
+    "skeletons": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "candidates": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "contractRefs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "contractId": {
+            "type": "string",
+            "description": ""
+          },
+          "version": {
+            "type": "string",
+            "description": ""
+          },
+          "ref": {
+            "type": "string",
+            "description": ""
+          }
+        },
+        "required": [
+          "contractId",
+          "ref"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "untrustedObservations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "observationId": {
+            "type": "string",
+            "description": ""
+          },
+          "untrusted": {
+            "type": "boolean",
+            "const": true
+          },
+          "kind": {
+            "type": "string",
+            "description": ""
+          },
+          "value": {
+            "type": "string",
+            "description": ""
+          }
+        },
+        "required": [
+          "observationId",
+          "untrusted",
+          "kind",
+          "value"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "skeletons",
+    "candidates"
+  ],
+  "additionalProperties": false
+}

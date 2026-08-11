@@ -26,6 +26,10 @@ const DEFAULT_RETENTION: RetentionPolicy = {
 export interface McpServerOptions {
   root?: string;
   dataRoot?: string;
+  /** Bundled runtime resources may replace the repository-relative defaults. */
+  schemasDir?: string;
+  /** Bundled runtime tool contracts may replace the repository-relative defaults. */
+  toolsDir?: string;
   hostContexts?: Record<string, { mcp_host_context: JsonObject }>;
   retention?: Partial<RetentionPolicy>;
   budgets?: Partial<{ installation: number; workspace: number; global: number; workspacePerRun: number }>;
@@ -58,15 +62,15 @@ export class McpServer {
   readonly progressListeners = new Set<(event: ProgressNotification) => void>();
   readonly minPollMs = 100;
 
-  constructor({ root = process.cwd(), dataRoot, hostContexts, retention, budgets, stepMs, fixtureVariant, leasePolicy, plannerConfig, production, engineModes, targetProvider, logger, progressSink, workerProtocolVersion = WORKER_PROTOCOL_VERSION }: McpServerOptions = {}) {
+  constructor({ root = process.cwd(), dataRoot, schemasDir, toolsDir, hostContexts, retention, budgets, stepMs, fixtureVariant, leasePolicy, plannerConfig, production, engineModes, targetProvider, logger, progressSink, workerProtocolVersion = WORKER_PROTOCOL_VERSION }: McpServerOptions = {}) {
     if (workerProtocolVersion !== MCP_PROTOCOL_VERSION) {
       const error = Object.assign(new Error(`worker protocol ${workerProtocolVersion} is incompatible with server protocol ${MCP_PROTOCOL_VERSION}`), { code: "PROTOCOL_VERSION_MISMATCH" });
       throw error;
     }
     this.root = path.resolve(root);
     this.dataRoot = path.resolve(dataRoot || path.join(this.root, ".autopw", "data"));
-    this.schemasDir = path.join(this.root, "packages", "schemas", "schemas");
-    this.toolsDir = path.join(this.root, "packages", "mcp-contracts", "contracts", "tools");
+    this.schemasDir = path.resolve(schemasDir || path.join(this.root, "packages", "schemas", "schemas"));
+    this.toolsDir = path.resolve(toolsDir || path.join(this.root, "packages", "mcp-contracts", "contracts", "tools"));
     this.retention = Object.assign({}, DEFAULT_RETENTION, retention || {});
     this.registry = new OperationRegistry({ dataRoot: this.dataRoot, retention: this.retention, logger });
     this.auditRuntime = new AuditVerticalSlice({ root: this.root, dataRoot: this.dataRoot, fixtureVariant, plannerConfig, production, engineModes, targetProvider });

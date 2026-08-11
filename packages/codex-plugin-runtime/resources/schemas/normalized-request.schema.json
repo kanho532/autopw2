@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopw.dev/schemas/2.1/normalized-request.schema.json",
+  "title": "Normalized run request after preflight",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/schemaVersion"
+    },
+    "profile_digest": {
+      "type": "string",
+      "description": "Content digest of normalized profile"
+    },
+    "diff_ref": {
+      "type": "string",
+      "description": "Diff reference"
+    },
+    "tier": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/enum/baseTier"
+    },
+    "scope_features": {
+      "type": "array",
+      "items": {
+        "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/featureId"
+      }
+    },
+    "auth_scope_id": {
+      "type": "string",
+      "description": "Auth scope id"
+    },
+    "mode": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/enum/lifecycleMode"
+    }
+  },
+  "required": [
+    "schema_version",
+    "tier",
+    "mode"
+  ],
+  "additionalProperties": false
+}

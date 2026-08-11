@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopw.dev/schemas/2.1/operation-record.schema.json",
+  "title": "Persisted operation record",
+  "type": "object",
+  "properties": {
+    "operation_id": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/operationId"
+    },
+    "tool": {
+      "type": "string",
+      "description": "Tool name"
+    },
+    "client_request_id": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/clientRequestId"
+    },
+    "workspace_id": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/workspaceId"
+    },
+    "status": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/enum/operationStatus"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "run",
+        "preview",
+        "maintenance"
+      ]
+    },
+    "created_at": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/isoTimestamp"
+    },
+    "expires_at": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/isoTimestamp"
+    },
+    "run_id": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/runId"
+    }
+  },
+  "required": [
+    "operation_id",
+    "tool",
+    "client_request_id",
+    "workspace_id",
+    "status",
+    "created_at",
+    "expires_at"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopw.dev/schemas/2.1/run-state.schema.json",
+  "title": "Single Run phase source of truth",
+  "type": "object",
+  "properties": {
+    "run_id": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/runId"
+    },
+    "state_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "phase": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/enum/runPhase"
+    },
+    "run_status": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/enum/runStatus"
+    },
+    "audit_status": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/enum/auditStatus"
+    },
+    "gate": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/enum/gate"
+    },
+    "owner": {
+      "type": "string",
+      "description": "current lease owner"
+    },
+    "lease": {
+      "type": "object",
+      "properties": {
+        "ttl_ms": {
+          "type": "integer",
+          "minimum": 30000
+        },
+        "heartbeat_ms": {
+          "type": "integer",
+          "minimum": 200,
+          "maximum": 10000
+        },
+        "acquired_at": {
+          "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/isoTimestamp"
+        }
+      },
+      "required": [
+        "ttl_ms",
+        "heartbeat_ms",
+        "acquired_at"
+      ],
+      "additionalProperties": false
+    },
+    "terminalization_reason": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/enum/terminalizationReason"
+    },
+    "fatal_class": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/enum/fatalFailureClass"
+    }
+  },
+  "required": [
+    "run_id",
+    "state_version",
+    "phase",
+    "run_status"
+  ],
+  "additionalProperties": true
+}

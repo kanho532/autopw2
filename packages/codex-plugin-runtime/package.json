@@ -1,0 +1,25 @@
+{
+  "name": "@autopw/codex-plugin-runtime",
+  "version": "2.2.0",
+  "type": "module",
+  "main": "./dist/server.js",
+  "bin": {
+    "autopw": "./dist/cli.js",
+    "autopw-mcp": "./dist/stdio.js"
+  },
+  "files": [
+    "dist",
+    "resources"
+  ],
+  "scripts": {
+    "build": "node ../../tools/build-plugin-runtime.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "playwright": "^1.62.1",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.10"
+  }
+}

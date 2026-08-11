@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopw.dev/schemas/2.1/terminalization.schema.json",
+  "title": "Controlled early-stop reason",
+  "type": "object",
+  "properties": {
+    "reason": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/enum/terminalizationReason"
+    },
+    "trigger_phase": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/enum/runPhase"
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "existing_artifacts": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "description": ""
+      }
+    },
+    "outstanding_scope": {
+      "type": "array",
+      "items": {
+        "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/caseId"
+      }
+    },
+    "expected_gate": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/enum/gate"
+    }
+  },
+  "required": [
+    "reason",
+    "trigger_phase",
+    "expected_gate"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopw.dev/schemas/2.1/finalization-result.schema.json",
+  "title": "Runtime finalization result",
+  "type": "object",
+  "properties": {
+    "browsers_closed": {
+      "type": "boolean"
+    },
+    "agents_released": {
+      "type": "boolean"
+    },
+    "manage_target_closed": {
+      "type": "boolean"
+    },
+    "temp_secrets_cleared": {
+      "type": "boolean"
+    },
+    "gate_critical_ok": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "browsers_closed",
+    "agents_released",
+    "temp_secrets_cleared",
+    "gate_critical_ok"
+  ],
+  "additionalProperties": false
+}

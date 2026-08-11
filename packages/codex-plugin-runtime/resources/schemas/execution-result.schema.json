@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopw.dev/schemas/2.1/execution-result.schema.json",
+  "title": "Per-instance execution result",
+  "type": "object",
+  "properties": {
+    "execution_id": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/executionId"
+    },
+    "case_id": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/caseId"
+    },
+    "status": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/enum/executionStatus"
+    },
+    "attempts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "evidence_refs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "description": ""
+      }
+    },
+    "at": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/isoTimestamp"
+    }
+  },
+  "required": [
+    "execution_id",
+    "case_id",
+    "status"
+  ],
+  "additionalProperties": false
+}

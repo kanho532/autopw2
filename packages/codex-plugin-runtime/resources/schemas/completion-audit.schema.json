@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopw.dev/schemas/2.1/completion-audit.schema.json",
+  "title": "Structural audit reconciliation",
+  "type": "object",
+  "properties": {
+    "audit_status": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/enum/auditStatus"
+    },
+    "case_reconciliation": {
+      "type": "string",
+      "enum": [
+        "COMPLETE",
+        "MISMATCH"
+      ]
+    },
+    "instance_reconciliation": {
+      "type": "string",
+      "enum": [
+        "COMPLETE",
+        "MISMATCH"
+      ]
+    },
+    "evidence_complete": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "audit_status",
+    "case_reconciliation",
+    "instance_reconciliation",
+    "evidence_complete"
+  ],
+  "additionalProperties": false
+}

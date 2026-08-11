@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopw.dev/schemas/2.1/mcp-tool-common-request.schema.json",
+  "title": "Shared fields for create-type MCP tool requests",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/schemaVersion"
+    },
+    "client_request_id": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/clientRequestId"
+    },
+    "workspace_id": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/workspaceId"
+    },
+    "project_subpath": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/projectSubpath"
+    }
+  },
+  "required": [
+    "schema_version",
+    "client_request_id",
+    "workspace_id"
+  ],
+  "additionalProperties": false
+}

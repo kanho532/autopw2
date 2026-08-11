@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopw.dev/schemas/2.1/event.schema.json",
+  "title": "Append-only event log entry",
+  "type": "object",
+  "properties": {
+    "seq": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "kind": {
+      "type": "string",
+      "description": "event kind"
+    },
+    "phase": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/enum/runPhase"
+    },
+    "at": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/isoTimestamp"
+    },
+    "detail": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "required": [
+    "seq",
+    "kind",
+    "at"
+  ],
+  "additionalProperties": false
+}

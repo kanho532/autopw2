@@ -12,4 +12,6 @@
 - The Fixture plan engine is deprecated but available through explicit trusted
   compatibility configuration for one release cycle.
 - Release metrics, explicit oracle bindings, external-target execution, and
-  API response-body limits are included in the v2.2 hardening gate.
+  accepted API response-payload limits are included in the v2.2 hardening gate.
+- Added the AutoPW Codex Plugin, version-pinned STDIO MCP runtime, repository
+  marketplace entry, trusted-workspace CLI, and audit workflow skills.

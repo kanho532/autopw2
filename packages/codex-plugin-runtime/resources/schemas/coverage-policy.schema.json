@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopw.dev/schemas/2.1/coverage-policy.schema.json",
+  "title": "Coverage policy",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/schemaVersion"
+    },
+    "mandatory_capabilities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "capability id"
+          },
+          "priority": {
+            "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/enum/priority"
+          },
+          "scope_mode": {
+            "type": "string",
+            "enum": [
+              "always",
+              "when_affected"
+            ]
+          },
+          "feature_ids": {
+            "type": "array",
+            "items": {
+              "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/featureId"
+            }
+          },
+          "on_missing": {
+            "type": "string",
+            "enum": [
+              "incomplete",
+              "warn"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "priority",
+          "scope_mode",
+          "feature_ids",
+          "on_missing"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "mandatory_capabilities"
+  ],
+  "additionalProperties": true
+}

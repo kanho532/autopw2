@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopw.dev/schemas/2.1/target-result.schema.json",
+  "title": "TARGET_READY result",
+  "type": "object",
+  "properties": {
+    "result": {
+      "type": "string",
+      "enum": [
+        "CONNECTED",
+        "STARTED"
+      ]
+    },
+    "health": {
+      "type": "string",
+      "description": "Health evidence"
+    },
+    "at": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/isoTimestamp"
+    }
+  },
+  "required": [
+    "result",
+    "health",
+    "at"
+  ],
+  "additionalProperties": false
+}

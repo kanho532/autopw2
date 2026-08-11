@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "autopw": {
+      "command": "npx",
+      "args": ["-y", "@autopw/codex-plugin-runtime@2.2.0", "stdio"]
+    }
+  }
+}

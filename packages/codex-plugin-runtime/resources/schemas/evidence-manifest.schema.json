@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopw.dev/schemas/2.1/evidence-manifest.schema.json",
+  "title": "Evidence index + redaction state",
+  "type": "object",
+  "properties": {
+    "execution_id": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/executionId"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "redacted": {
+      "type": "boolean"
+    },
+    "redaction_status": {
+      "type": "string",
+      "enum": [
+        "COMPLETE",
+        "INCOMPLETE"
+      ]
+    }
+  },
+  "required": [
+    "execution_id",
+    "items",
+    "redacted"
+  ],
+  "additionalProperties": false
+}

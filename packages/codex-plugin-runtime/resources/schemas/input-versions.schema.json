@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://autopw.dev/schemas/2.1/input-versions.schema.json",
+  "title": "Input version digests",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "$ref": "https://autopw.dev/schemas/2.1/common.schema.json#/$defs/schemaVersion"
+    },
+    "profile_digest": {
+      "type": "string",
+      "description": ""
+    },
+    "coverage_policy_digest": {
+      "type": "string",
+      "description": ""
+    },
+    "route_map_digest": {
+      "type": "string",
+      "description": ""
+    },
+    "scenario_contract_digest": {
+      "type": "string",
+      "description": ""
+    },
+    "engine_version": {
+      "type": "string",
+      "description": ""
+    },
+    "schema_version_bundle": {
+      "type": "string",
+      "description": ""
+    }
+  },
+  "required": [
+    "schema_version",
+    "profile_digest",
+    "engine_version"
+  ],
+  "additionalProperties": false
+}

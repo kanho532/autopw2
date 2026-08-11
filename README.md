@@ -15,6 +15,14 @@ compatibility configuration in the host harness.
 
 The primary implementation language is **TypeScript** (`.ts`) with strict type checking. JavaScript modules are limited to generators and verification harnesses; new runtime code belongs in the TypeScript packages and is consumed through the build output.
 
+## Codex Plugin
+
+AutoPW is packaged as a Codex Plugin under `plugins/autopw`. Its standard MCP
+STDIO adapter is intentionally separate from the internal `McpServer`: the
+adapter resolves only explicitly trusted local workspaces and injects the
+host-owned target configuration. See `docs/codex-plugin-installation.md` for
+installation and `docs/codex-plugin-security.md` for the trust boundary.
+
 ## Run the acceptance gates
 ```bash
 npm install
