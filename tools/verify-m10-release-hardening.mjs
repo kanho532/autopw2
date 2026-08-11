@@ -45,7 +45,7 @@ try {
   check("m10-planner-cache-hit-is-recorded-separately", cachedMetrics.plan_cache_hit === true && Number.isFinite(cachedMetrics.planner_fill_ms));
   check("m10-default-run-keeps-frozen-phase-order", phaseList(dataRoot, "run_m10_default_a").join(",") === expectedPhases);
   check("m10-plan-and-execution-identifiers-are-deterministic", testPlan.planDigest(firstPlan) === testPlan.planDigest(secondPlan) && first.cases.map((item) => item.execution_id).join(",") === second.cases.map((item) => item.execution_id).join(","));
-  check("m10-artifacts-and-reports-are-restart-readable", fs.existsSync(path.join(dataRoot, "runs", "run_m10_default_a", "artifact-index.json")) && fs.existsSync(path.join(dataRoot, "runs", "run_m10_default_a", "artifacts", "report.md")) && fs.existsSync(path.join(dataRoot, "runs", "run_m10_default_a", "artifacts", "report.html")));
+  check("m10-artifacts-and-reports-are-restart-readable", fs.existsSync(path.join(dataRoot, "runs", "run_m10_default_a", "artifact-index.json")) && fs.existsSync(path.join(dataRoot, "runs", "run_m10_default_a", "artifacts", "report.md")) && fs.existsSync(path.join(dataRoot, "runs", "run_m10_default_a", "artifacts", "report.html")) && ["evidence-facts.json", "application-graph.json", "graph-diagnostics.json"].every((name) => fs.existsSync(path.join(dataRoot, "runs", "run_m10_default_a", name))));
 
   target.reset();
   const beforeProductionStats = target.getStats();

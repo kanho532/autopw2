@@ -1,0 +1,10 @@
+{
+  "name": "@autopw/application-graph",
+  "version": "2.1.0-rc5.mcp-first",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "description": "Versioned evidence and deterministic application graph contracts for AutoPW."
+}

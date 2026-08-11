@@ -8,6 +8,7 @@ import { writeReport, type ReportCoverageRow } from "@autopw/reporting";
 import { RunStorage, type ArtifactRef } from "@autopw/run-storage";
 import type { RunSnapshot } from "@autopw/operation-registry";
 import { discover } from "@autopw/discovery";
+import { buildApplicationGraph, type ApplicationGraph, type EvidenceCollection, type GraphDiagnostics } from "@autopw/application-graph";
 import { analyzeDiff, deriveCoverage, digest, reconcileRequirementCoverage, type DerivationResult, type DiffResult, type Tier, type TestRequirement } from "@autopw/derivation";
 import { buildCandidateCatalog, buildRequirementPlannerInput, DeterministicFixturePlanner, LocalStructuredPlannerProvider, PlanTemplateCache, planExecutionInstances, plannerInputDigest, validatePlannerOutput, type CandidateCatalog, type PlannerInput, type PlannerOutput, type PlannerProviderOptions, type PlanTemplate } from "@autopw/planner";
 import { redactSecrets } from "@autopw/security";
@@ -15,7 +16,7 @@ import { loadPlan, mergePlans, type PlanMergeMode, type TestPlan } from "@autopw
 
 export interface VerticalRun extends RunSnapshot { phase: string; }
 export interface VerticalResult { gate: "incomplete" | "infra" | "fail" | "unstable" | "pass"; audit_status: "COMPLETE" | "INCOMPLETE"; results_ref: ArtifactRef; report_ref: ArtifactRef; gate_summary: Record<string, unknown>; cases: Record<string, unknown>[]; evidence_refs: ArtifactRef[]; }
-export interface CoveragePreview { discovery: Record<string, unknown>; derivation: DerivationResult; diff: DiffResult; result_ref?: ArtifactRef; summary: Record<string, unknown>; }
+export interface CoveragePreview { discovery: Record<string, unknown>; evidence: EvidenceCollection; application_graph: ApplicationGraph; graph_diagnostics: GraphDiagnostics; derivation: DerivationResult; diff: DiffResult; result_ref?: ArtifactRef; summary: Record<string, unknown>; }
 export type PlanEngineMode = "fixture" | "declarative";
 /** Structured Discovery is the sole implementation after M9.5; only plan execution has a compatibility mode. */
 export interface EngineModes { plan_engine: PlanEngineMode; }
@@ -212,6 +213,7 @@ export class AuditVerticalSlice {
       target_url: targetUrl,
       budget: { max_depth: 6, max_files: 500, timeout_ms: 3000, allowed_origins: allowedOrigins }
     });
+    const application = buildApplicationGraph(discovery);
     const sourceMappings = discovery.observations.filter((observation) => observation.kind === "source" && typeof observation.path === "string" && Array.isArray(observation.features)).map((observation) => ({ file_glob: String(observation.path), features: (observation.features as unknown[]).filter((feature): feature is string => typeof feature === "string") }));
     const diff = analyzeDiff({ diffRef: typeof request.diff_ref === "string" ? request.diff_ref : undefined, root: this.root, mappings: sourceMappings });
     const matrixBudget = typeof request.matrix_budget === "object" && request.matrix_budget ? Number((request.matrix_budget as Record<string, unknown>).max_execution_instances || 0) : 0;
@@ -241,10 +243,13 @@ export class AuditVerticalSlice {
     if (artifactId) {
       const serializationStarted = Date.now();
       const storageId = artifactId.startsWith("op_") ? "run_" + artifactId.slice(3) : artifactId;
-      result_ref = this.storage.writeArtifact(storageId, "cdd.json", "cdd.json", JSON.stringify({ discovery, derivation, diff, summary }, null, 2) + "\n");
+      this.storage.writeJson(storageId, "evidence-facts.json", application.evidence);
+      this.storage.writeJson(storageId, "application-graph.json", application.graph);
+      this.storage.writeJson(storageId, "graph-diagnostics.json", application.diagnostics);
+      result_ref = this.storage.writeArtifact(storageId, "cdd.json", "cdd.json", JSON.stringify({ discovery, evidence: application.evidence, application_graph: application.graph, graph_diagnostics: application.diagnostics, derivation, diff, summary }, null, 2) + "\n");
       (summary.timings as Record<string, unknown>).serialization_ms = Date.now() - serializationStarted;
     }
-    return { discovery: discovery as unknown as Record<string, unknown>, derivation, diff, result_ref, summary };
+    return { discovery: discovery as unknown as Record<string, unknown>, evidence: application.evidence, application_graph: application.graph, graph_diagnostics: application.diagnostics, derivation, diff, result_ref, summary };
   }
 
   private async fillPlanner({ request, coverage, targetUrl }: { request: Record<string, unknown>; coverage: CoveragePreview; targetUrl: string }): Promise<PlannerArtifacts> {

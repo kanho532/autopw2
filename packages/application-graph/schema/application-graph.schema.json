@@ -1,0 +1,116 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://autopw.dev/schema/application-graph-1.0.json",
+  "title": "AutoPW Application Graph 1.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "graph_id", "evidence_schema_version", "nodes", "edges"],
+  "properties": {
+    "schema_version": { "const": "autopw.application-graph/1.0" },
+    "graph_id": { "type": "string", "pattern": "^graph_[a-f0-9]{16}$" },
+    "evidence_schema_version": { "const": "autopw.evidence/1.0" },
+    "nodes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operations", "resources", "fields", "routes", "controls", "workflows"],
+      "properties": {
+        "operations": { "type": "array", "items": { "$ref": "#/definitions/operation" } },
+        "resources": { "type": "array", "items": { "$ref": "#/definitions/resource" } },
+        "fields": { "type": "array", "items": { "$ref": "#/definitions/field" } },
+        "routes": { "type": "array", "items": { "$ref": "#/definitions/route" } },
+        "controls": { "type": "array", "items": { "$ref": "#/definitions/control" } },
+        "workflows": { "type": "array", "items": { "$ref": "#/definitions/workflow" } }
+      }
+    },
+    "edges": { "type": "array", "items": { "$ref": "#/definitions/edge" } }
+  },
+  "definitions": {
+    "base": {
+      "type": "object",
+      "required": ["id", "kind", "evidence_refs", "confidence"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["operation", "resource", "field", "route", "control", "workflow"] },
+        "evidence_refs": { "$ref": "#/definitions/evidenceRefs" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "operation": {
+      "allOf": [
+        { "$ref": "#/definitions/base" },
+        {
+          "type": "object",
+          "required": ["protocol", "operation_kinds", "feature_ids"],
+          "properties": {
+            "protocol": { "enum": ["HTTP", "GRAPHQL", "RPC", "UI"] },
+            "method": { "type": "string" },
+            "path_template": { "type": "string" },
+            "operation_kinds": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+            "feature_ids": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+            "resource_id": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "resource": {
+      "allOf": [
+        { "$ref": "#/definitions/base" },
+        { "type": "object", "required": ["collection_path", "operation_ids", "field_ids"], "properties": { "collection_path": { "type": "string" }, "operation_ids": { "$ref": "#/definitions/idArray" }, "field_ids": { "$ref": "#/definitions/idArray" } } }
+      ]
+    },
+    "field": {
+      "allOf": [
+        { "$ref": "#/definitions/base" },
+        {
+          "type": "object",
+          "required": ["name", "constraints"],
+          "properties": {
+            "name": { "type": "string", "minLength": 1 },
+            "resource_id": { "type": "string" },
+            "constraints": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["rule"],
+                "properties": { "rule": { "type": "string" } }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "route": {
+      "allOf": [
+        { "$ref": "#/definitions/base" },
+        { "type": "object", "required": ["path"], "properties": { "path": { "type": "string" } } }
+      ]
+    },
+    "control": {
+      "allOf": [
+        { "$ref": "#/definitions/base" },
+        { "type": "object", "required": ["route_id"], "properties": { "route_id": { "type": "string" }, "role": { "type": "string" }, "accessible_name": { "type": "string" }, "locator": { "type": "string" } } }
+      ]
+    },
+    "workflow": {
+      "allOf": [
+        { "$ref": "#/definitions/base" },
+        { "type": "object", "required": ["name", "operation_ids"], "properties": { "name": { "type": "string" }, "operation_ids": { "$ref": "#/definitions/idArray" } } }
+      ]
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "relation", "from", "to", "confidence", "evidence_refs"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^edge_[a-f0-9]{16}$" },
+        "relation": { "enum": ["RESOURCE_OPERATION", "RESOURCE_FIELD", "ROUTE_CONTROL", "CONTROL_OPERATION", "WORKFLOW_OPERATION"] },
+        "from": { "type": "string" },
+        "to": { "type": "string" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "evidence_refs": { "$ref": "#/definitions/evidenceRefs" }
+      }
+    },
+    "idArray": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+    "evidenceRefs": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^evidence_[a-f0-9]{16}$" }, "uniqueItems": true }
+  }
+}
