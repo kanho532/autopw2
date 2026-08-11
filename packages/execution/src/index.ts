@@ -274,7 +274,11 @@ function persistResult(storage: RunStorage, runId: string, result: ExecutionResu
 function fromNormalizedPlan(plan: TestPlan, authority: PlanValidationContext["authority"]): TestPlan { const copy = JSON.parse(JSON.stringify(plan)) as TestPlan; assertValidPlan(copy, { authority }); return normalizePlan(copy, { authority }); }
 function locate(page: Page, locator: LocatorRef) { if (locator.by === "role") return page.getByRole(locator.role as any, locator.name === undefined ? {} : { name: locator.name, exact: locator.exact }); if (locator.by === "label") return page.getByLabel(locator.text); if (locator.by === "test_id") return page.getByTestId(locator.value); if (locator.by === "text") return page.getByText(locator.text, { exact: locator.exact }); if (locator.by === "id") return page.locator("#" + locator.value); return page.locator(locator.value); }
 const MAX_API_REDIRECTS = 5;
-export const MAX_API_RESPONSE_BYTES = 1_048_576;
+/**
+ * Maximum payload accepted after Playwright's API transport has completed.
+ * This is an assertion/evidence boundary, not a streaming transport memory cap.
+ */
+export const MAX_ACCEPTED_API_RESPONSE_BYTES = 1_048_576;
 const SENSITIVE_REDIRECT_HEADERS = new Set(["authorization", "cookie", "proxy-authorization"]);
 async function apiRequest(context: BrowserContext, url: string, step: Extract<TestStep, { action: "api_request" }>, network: BrowserNetworkGuard, deadline?: number): Promise<APIResponse> {
   let currentUrl = url;
@@ -305,7 +309,7 @@ function stripSensitiveRedirectHeaders(headers: Record<string, string> | undefin
 async function responseValue(response: APIResponse): Promise<Record<string, unknown>> {
   const headers = response.headers();
   const bytes = await response.body();
-  if (bytes.byteLength > MAX_API_RESPONSE_BYTES) throw Object.assign(new Error(`API response exceeds ${MAX_API_RESPONSE_BYTES} byte limit`), { code: "API_RESPONSE_TOO_LARGE" });
+  if (bytes.byteLength > MAX_ACCEPTED_API_RESPONSE_BYTES) throw Object.assign(new Error(`API response exceeds ${MAX_ACCEPTED_API_RESPONSE_BYTES} accepted-payload limit`), { code: "API_RESPONSE_TOO_LARGE" });
   const text = bytes.toString("utf8");
   let body: unknown = text;
   try { body = text ? JSON.parse(text) : undefined; } catch { /* text body */ }

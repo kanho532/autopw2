@@ -97,9 +97,9 @@ export class AuditVerticalSlice {
       const coverage = await this.deriveCoverage({ request, artifactId: run.run_id, targetUrl: target.baseUrl });
       releaseMetrics.coverage_pipeline_ms = Date.now() - coverageStartedAt;
       const discoveryMetrics = isRecord((coverage.discovery as Record<string, unknown>).metrics) ? (coverage.discovery as Record<string, unknown>).metrics as Record<string, unknown> : {};
-      releaseMetrics.static_discovery_wall_ms = Number(discoveryMetrics.static_discovery_wall_ms || 0);
-      releaseMetrics.live_discovery_wall_ms = Number(discoveryMetrics.live_discovery_wall_ms || 0);
-      releaseMetrics.correlation_cpu_ms = Number(discoveryMetrics.correlation_cpu_ms || 0);
+      releaseMetrics.static_discovery_wall_ms = requiredMetric(discoveryMetrics, "static_discovery_wall_ms");
+      releaseMetrics.live_discovery_wall_ms = requiredMetric(discoveryMetrics, "live_discovery_wall_ms");
+      releaseMetrics.correlation_cpu_ms = requiredMetric(discoveryMetrics, "correlation_cpu_ms");
       releaseMetrics.derivation_cpu_ms = coverage.derivation.metrics.derivation_cpu_ms;
       this.storage.writeJson(run.run_id, "discovery.json", coverage.discovery);
       this.storage.writeJson(run.run_id, "derivation.json", coverage.derivation);
@@ -364,6 +364,11 @@ function stableJson(value: unknown): string {
   return JSON.stringify(value);
 }
 function isRecord(value: unknown): value is Record<string, unknown> { return Boolean(value) && typeof value === "object" && !Array.isArray(value); }
+function requiredMetric(metrics: Record<string, unknown>, name: string): number {
+  const value = metrics[name];
+  if (!Number.isFinite(value) || Number(value) < 0) throw Object.assign(new Error("discovery metric is missing or invalid: " + name), { code: "DISCOVERY_METRIC_MISSING" });
+  return Number(value);
+}
 function matrixFromRequest(request: Record<string, unknown>): ExecutionMatrix | undefined {
   const value = isRecord(request.matrix) ? request.matrix : undefined;
   const tier = String(request.tier || request.base_tier || "fast");

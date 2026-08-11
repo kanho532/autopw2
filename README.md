@@ -51,7 +51,7 @@ audits, coverage thresholds, gate ordering, and coverage/case-path reporting.
 `latest.json` and run-scoped reports under the selected data root.
 `verify:m10` checks the default declarative path, dual-run compatibility lane,
 release metrics, deterministic identifiers, security boundaries, cache recovery,
-and the API response-body limit. `verify:v2.2` is the complete v2.2 release
+and the accepted API response-payload limit. `verify:v2.2` is the complete v2.2 release
 chain and intentionally includes the prior v2.1 and M9 gates.
 
 ## Layout
