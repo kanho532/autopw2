@@ -274,6 +274,7 @@ function persistResult(storage: RunStorage, runId: string, result: ExecutionResu
 function fromNormalizedPlan(plan: TestPlan, authority: PlanValidationContext["authority"]): TestPlan { const copy = JSON.parse(JSON.stringify(plan)) as TestPlan; assertValidPlan(copy, { authority }); return normalizePlan(copy, { authority }); }
 function locate(page: Page, locator: LocatorRef) { if (locator.by === "role") return page.getByRole(locator.role as any, locator.name === undefined ? {} : { name: locator.name, exact: locator.exact }); if (locator.by === "label") return page.getByLabel(locator.text); if (locator.by === "test_id") return page.getByTestId(locator.value); if (locator.by === "text") return page.getByText(locator.text, { exact: locator.exact }); if (locator.by === "id") return page.locator("#" + locator.value); return page.locator(locator.value); }
 const MAX_API_REDIRECTS = 5;
+export const MAX_API_RESPONSE_BYTES = 1_048_576;
 const SENSITIVE_REDIRECT_HEADERS = new Set(["authorization", "cookie", "proxy-authorization"]);
 async function apiRequest(context: BrowserContext, url: string, step: Extract<TestStep, { action: "api_request" }>, network: BrowserNetworkGuard, deadline?: number): Promise<APIResponse> {
   let currentUrl = url;
@@ -301,7 +302,15 @@ function stripSensitiveRedirectHeaders(headers: Record<string, string> | undefin
   const filtered = Object.fromEntries(Object.entries(headers).filter(([name]) => !SENSITIVE_REDIRECT_HEADERS.has(name.toLowerCase())));
   return Object.keys(filtered).length ? filtered : undefined;
 }
-async function responseValue(response: APIResponse): Promise<Record<string, unknown>> { const headers = response.headers(); const text = await response.text(); let body: unknown = text; try { body = text ? JSON.parse(text) : undefined; } catch { /* text body */ } return { status: response.status(), ok: response.ok(), url: response.url(), headers, body }; }
+async function responseValue(response: APIResponse): Promise<Record<string, unknown>> {
+  const headers = response.headers();
+  const bytes = await response.body();
+  if (bytes.byteLength > MAX_API_RESPONSE_BYTES) throw Object.assign(new Error(`API response exceeds ${MAX_API_RESPONSE_BYTES} byte limit`), { code: "API_RESPONSE_TOO_LARGE" });
+  const text = bytes.toString("utf8");
+  let body: unknown = text;
+  try { body = text ? JSON.parse(text) : undefined; } catch { /* text body */ }
+  return { status: response.status(), ok: response.ok(), url: response.url(), headers, body };
+}
 function getSource(scopes: Record<string, unknown>, source: unknown): Record<string, any> { const value = source && typeof source === "object" ? source : typeof source === "string" && source.startsWith("${") ? resolveInterpolation(source, scopes) : typeof source === "string" && source.startsWith("$") ? lookup(scopes.responses, source.slice(1)) : typeof source === "string" && source.startsWith("responses.") ? lookup(scopes.responses, source.slice("responses.".length)) : lookup(scopes.responses, String(source)); if (!value || typeof value !== "object") throw Object.assign(new Error("response source is undefined: " + String(source)), { code: "PLAN_VARIABLE_UNDEFINED" }); return value as Record<string, any>; }
 function lookup(scope: unknown, expression: string): unknown { let value = scope; for (const part of expression.replace(/^\$\{?/, "").replace(/\}?$/, "").split(".").filter(Boolean)) { if (!value || typeof value !== "object" || !(part in (value as Record<string, unknown>))) throw Object.assign(new Error("undefined variable: " + expression), { code: "PLAN_VARIABLE_UNDEFINED" }); value = (value as Record<string, unknown>)[part]; } return value; }
 function jsonPath(value: unknown, expression: string): unknown { return expression.split(".").filter(Boolean).reduce<unknown>((current, part) => { const match = part.match(/^(.+)\[(\d+)\]$/); if (match) return Array.isArray(current) ? current[Number(match[2])] : undefined; return current && typeof current === "object" ? (current as Record<string, unknown>)[part] : undefined; }, value); }

@@ -164,8 +164,10 @@ export function planExecutionInstances(cases: PlannerCase[], tier: Tier, profile
 function cartesian(tier: Tier, browsers: string[], viewports: Viewport[], locales: string[], authScopes: string[]): Omit<ExecutionBatch, "batch_id" | "case_ids">[] { return browsers.flatMap((browser) => viewports.flatMap((viewport) => locales.flatMap((locale) => authScopes.map((auth_scope_id) => ({ tier, browser, viewport, locale, auth_scope_id }))))); }
 function shortDigest(value: string): string { return crypto.createHash("sha256").update(value).digest("hex").slice(0, 16); }
 function stableJson(value: unknown): string {
-  if (Array.isArray(value)) return "[" + value.map(stableJson).join(",") + "]";
-  if (value && typeof value === "object") return "{" + Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => JSON.stringify(key) + ":" + stableJson(item)).join(",") + "}";
+  // Match JSON persistence semantics so a cached template validates after reload.
+  if (value === undefined) return "null";
+  if (Array.isArray(value)) return "[" + value.map((item) => item === undefined ? "null" : stableJson(item)).join(",") + "]";
+  if (value && typeof value === "object") return "{" + Object.entries(value as Record<string, unknown>).filter(([, item]) => item !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => JSON.stringify(key) + ":" + stableJson(item)).join(",") + "}";
   return JSON.stringify(value);
 }
 function batchOrder(a: ExecutionBatch, b: ExecutionBatch): number { return a.tier.localeCompare(b.tier) || a.browser.localeCompare(b.browser) || a.viewport.width - b.viewport.width || a.viewport.height - b.viewport.height || a.locale.localeCompare(b.locale) || a.auth_scope_id.localeCompare(b.auth_scope_id); }

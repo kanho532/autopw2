@@ -4,6 +4,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { McpServer } from "@autopw/mcp-server";
+import type { EngineModes } from "@autopw/core";
 
 type JsonObject = Record<string, any>;
 
@@ -55,18 +56,20 @@ export function loadInventory(): ContractInventory {
   };
 }
 
-export async function newHarness({ retention, budgets, stepMs, fixtureVariant, dataRoot: requestedDataRoot }: {
+export async function newHarness({ retention, budgets, stepMs, fixtureVariant, dataRoot: requestedDataRoot, engineModes }: {
   retention?: Record<string, number | boolean>;
   budgets?: Record<string, number>;
   stepMs?: number;
   fixtureVariant?: "pass" | "fail" | "incomplete";
   dataRoot?: string;
+  /** M0–M8 verification is a deliberately explicit legacy compatibility lane. */
+  engineModes?: Partial<EngineModes>;
 } = {}): Promise<Harness> {
   const dataRoot = requestedDataRoot || path.join(root, ".autopw", "test-" + crypto.randomBytes(6).toString("hex"));
   fs.mkdirSync(dataRoot, { recursive: true });
   const hosts = { ws_demo: HERE_TRUSTED, ws_pr: HERE_UNTRUSTED_PR };
   const progress: JsonObject[] = [];
-  const server = new McpServer({ root, dataRoot, retention, budgets, stepMs, fixtureVariant, logger, progressSink: (event) => progress.push(event as unknown as JsonObject) });
+  const server = new McpServer({ root, dataRoot, retention, budgets, stepMs, fixtureVariant, engineModes: engineModes || { plan_engine: "fixture", discovery_engine: "legacy" }, logger, progressSink: (event) => progress.push(event as unknown as JsonObject) });
   for (const [workspace, context] of Object.entries(hosts)) server.registerHostContext(workspace, context);
   server.start();
   return { server, dataRoot, hosts, progress, cleanup: async () => { await server.stop(); fs.rmSync(dataRoot, { recursive: true, force: true }); } };

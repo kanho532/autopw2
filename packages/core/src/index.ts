@@ -19,7 +19,9 @@ export interface CoveragePreview { discovery: Record<string, unknown>; derivatio
 export type PlanEngineMode = "fixture" | "declarative";
 export type DiscoveryEngineMode = "legacy" | "structured";
 export interface EngineModes { plan_engine: PlanEngineMode; discovery_engine: DiscoveryEngineMode; }
-export const DEFAULT_ENGINE_MODES: Readonly<EngineModes> = Object.freeze({ plan_engine: "fixture", discovery_engine: "legacy" });
+/** M10 release default. The legacy pair remains an explicit compatibility mode for one release cycle. */
+export const DEFAULT_ENGINE_MODES: Readonly<EngineModes> = Object.freeze({ plan_engine: "declarative", discovery_engine: "structured" });
+export const LEGACY_ENGINE_MODES: Readonly<EngineModes> = Object.freeze({ plan_engine: "fixture", discovery_engine: "legacy" });
 
 export interface TargetSession { mode: "managed" | "external"; baseUrl: string; close(): Promise<void>; }
 export interface TargetProvider { open(): Promise<TargetSession>; }
@@ -74,6 +76,8 @@ export class AuditVerticalSlice {
   }
 
   async execute({ run, request, onPhase }: { run: VerticalRun; request: Record<string, unknown>; onPhase: PhaseCallback }): Promise<VerticalResult> {
+    const runStartedAt = Date.now();
+    const releaseMetrics: Record<string, number> = {};
     const variant = this.variant(this.fixtureVariant);
     const startedAt = new Date().toISOString();
     const commitPhase = (phase: string, progress: number, nextAction: string): void => { this.storage.appendEvent(run.run_id, { kind: "PHASE_COMMITTED", phase, detail: { progress, next_action: nextAction } }); onPhase(phase, progress, nextAction); };
@@ -89,17 +93,28 @@ export class AuditVerticalSlice {
       commitPhase("SEED_RESOLVED", 15, "poll get_run_status");
       this.storage.writeJson(run.run_id, "seed.json", { result: "SKIPPED", reset_capable: true, idempotent: true, at: new Date().toISOString() });
       commitPhase("DISCOVERED", 24, "poll get_run_status");
+      const coverageStartedAt = Date.now();
       const coverage = await this.deriveCoverage({ request, artifactId: run.run_id, targetUrl: target.baseUrl });
+      releaseMetrics.coverage_pipeline_ms = Date.now() - coverageStartedAt;
+      const discoveryMetrics = isRecord((coverage.discovery as Record<string, unknown>).metrics) ? (coverage.discovery as Record<string, unknown>).metrics as Record<string, unknown> : {};
+      releaseMetrics.static_discovery_wall_ms = Number(discoveryMetrics.static_discovery_wall_ms || 0);
+      releaseMetrics.live_discovery_wall_ms = Number(discoveryMetrics.live_discovery_wall_ms || 0);
+      releaseMetrics.correlation_cpu_ms = Number(discoveryMetrics.correlation_cpu_ms || 0);
+      releaseMetrics.derivation_cpu_ms = coverage.derivation.metrics.derivation_cpu_ms;
       this.storage.writeJson(run.run_id, "discovery.json", coverage.discovery);
       this.storage.writeJson(run.run_id, "derivation.json", coverage.derivation);
       commitPhase("COVERAGE_DERIVED", 30, "poll get_run_status");
+      const plannerStartedAt = Date.now();
       const planner = await this.fillPlanner({ request, coverage, targetUrl: target.baseUrl });
+      releaseMetrics.planner_fill_ms = Date.now() - plannerStartedAt;
       this.storage.writeJson(run.run_id, "planner-input.json", planner.input);
       this.storage.writeJson(run.run_id, "planner-output.json", planner.output);
       this.storage.writeJson(run.run_id, "plan-template.json", { cache_key: planner.template.cache_key, selections_digest: planner.template.selections_digest, planner_provider_id: planner.template.planner_provider_id, model_id: planner.template.model_id });
       this.storage.writeJson(run.run_id, "planner-audit.json", planner.audit);
       commitPhase("PLAN_FILLED", 36, "poll get_run_status");
+      const compilationStartedAt = Date.now();
       const compiled = this.engineModes.plan_engine === "declarative" ? compileTestPlan({ requirements: planner.requirements, candidateCatalog: planner.candidateCatalog || emptyCatalog(), plannerOutput: planner.output }) : compileFixturePlan(materializeFixturePlan(FIXTURE_PLAN, planner.output));
+      releaseMetrics.compilation_ms = Date.now() - compilationStartedAt;
       const manualPlan = this.engineModes.plan_engine === "declarative" ? manualPlanFromRequest(request) : undefined;
       const planMode = resolvePlanMode(request.plan_mode);
       const effectivePlan = manualPlan ? mergePlans(compiled.plan as TestPlan, manualPlan, planMode, { manualAuthority: { authority: "trusted_manual" } }) : compiled.plan;
@@ -118,9 +133,11 @@ export class AuditVerticalSlice {
       this.storage.writeJson(run.run_id, "suite-manifest.json", { digest: suiteDigest(compiled.source), forbidden_imports: false });
       commitPhase("SUITE_FROZEN", 54, "poll get_run_status");
       commitPhase("RUNNING", 60, "poll get_run_status");
+      const executionStartedAt = Date.now();
       const execution = this.engineModes.plan_engine === "declarative"
         ? await this.runner.run({ runId: run.run_id, baseUrl: target.baseUrl, allowedOrigins: this.resolvedAllowedOrigins(request), plan: effectivePlan as TestPlan, matrix: matrixFromRequest(request), tier: String(request.tier || request.base_tier || "fast") as "smoke" | "fast" | "full", storage: this.storage, planAuthority: manualPlan ? "trusted_manual" : "generated" })
         : await this.runner.run({ runId: run.run_id, baseUrl: target.baseUrl, allowedOrigins: this.resolvedAllowedOrigins(request), plan: effectivePlan as import("@autopw/execution-fixture").FixturePlan, variant, matrix: matrixFromRequest(request), tier: String(request.tier || request.base_tier || "fast") as "smoke" | "fast" | "full", storage: this.storage });
+      releaseMetrics.execution_ms = Date.now() - executionStartedAt;
       const reconciledCoverage = this.engineModes.plan_engine === "declarative" ? reconcileRequirementCoverage(planner.requirements, effectiveCaseMap, execution.results) : undefined;
       if (reconciledCoverage) this.storage.writeJson(run.run_id, "requirement-coverage.json", reconciledCoverage);
       commitPhase("EXECUTION_FINISHED", 78, "poll get_run_status");
@@ -133,7 +150,11 @@ export class AuditVerticalSlice {
       const resultRef = this.storage.writeArtifact(run.run_id, "results.json", "results.json", "{}\n");
       const results = { schema_version: "2.1", run_id: run.run_id, gate: gate.gate, audit_status: audit.audit_status, exit_code: gate.exit_code, results_ref: resultRef, summary: { ...audit.summary, coverage: reconciledCoverage }, issues: audit.issues };
       const persistedResultsRef = this.storage.writeArtifact(run.run_id, "results.json", "results.json", JSON.stringify(results, null, 2) + "\n");
+      const reportStartedAt = Date.now();
       const report = writeReport({ storage: this.storage, runId: run.run_id, gate: gate.gate, auditStatus: audit.audit_status, summary: { ...audit.summary, coverage: reconciledCoverage }, issues: audit.issues, resultsRef: persistedResultsRef, planSource, target: target.mode, coverage: coverageRows(planner.requirements, effectiveCaseMap, execution.results), cases: effectivePlan.cases });
+      releaseMetrics.report_ms = Date.now() - reportStartedAt;
+      releaseMetrics.total_run_ms = Date.now() - runStartedAt;
+      this.storage.writeJson(run.run_id, "release-metrics.json", { schema_version: "2.2", engine_modes: this.engineModes, plan_cache_hit: Boolean((planner.audit as Record<string, unknown>).cache_hit), ...releaseMetrics });
       this.storage.writeJson(run.run_id, "latest.json", { run_id: run.run_id, gate: gate.gate, audit_status: audit.audit_status, plan_source: planSource, report: { markdown: "artifacts/report.md", html: "artifacts/report.html", results: "artifacts/results.json" } });
       commitPhase("REPORTED", 96, "poll get_run_status");
       commitPhase("GATED", 100, "get_run_result");
@@ -237,7 +258,9 @@ export class AuditVerticalSlice {
     }));
     const input: PlannerInput = {
       schemaVersion: "2.1", skeletons, candidates, contractRefs: [{ contractId: this.engineModes.plan_engine === "declarative" ? "test-requirement-plan" : "fixture-plan", version: "2.1", ref: this.engineModes.plan_engine === "declarative" ? "requirement://derived" : "fixture://plan" }],
-      untrustedObservations: Object.entries(coverage.discovery).slice(0, 24).map(([kind, value], index) => ({ observationId: "obs_" + index, untrusted: true as const, kind, value: JSON.stringify(redactSecrets(value)).slice(0, 400) }))
+      // Discovery metrics are run-local timing data. They must not contribute to the
+      // reusable plan template digest, otherwise identical target facts never hit cache.
+      untrustedObservations: Object.entries(coverage.discovery).filter(([kind]) => kind !== "metrics").slice(0, 24).map(([kind, value], index) => ({ observationId: "obs_" + index, untrusted: true as const, kind, value: JSON.stringify(redactSecrets(value)).slice(0, 400) }))
     };
     const options: PlannerProviderOptions = { provider_id: "local-structured", provider_version: "1", model_id: "local-deterministic", timeout_ms: 2000, token_budget: 2048, temperature: 0, max_attempts: 2, ...this.plannerConfig };
     const cache = new PlanTemplateCache(path.join(this.storage.dataRoot, "plan-cache"));

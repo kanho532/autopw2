@@ -2,7 +2,7 @@ import http from "node:http";
 
 export interface TodoItem { id: string; title: string; completed: boolean; priority: "low" | "normal" | "high"; }
 export interface TodoStats { creates: number; updates: number; deletes: number; requests: number; }
-export interface TodoTarget { baseUrl: string; getItems(): TodoItem[]; getStats(): TodoStats; close(): Promise<void>; }
+export interface TodoTarget { baseUrl: string; getItems(): TodoItem[]; getStats(): TodoStats; reset(): void; close(): Promise<void>; }
 
 const MAX_TITLE_LENGTH = 80;
 const PRIORITIES = new Set(["low", "normal", "high"]);
@@ -67,7 +67,7 @@ export async function startTodoTarget(): Promise<TodoTarget> {
   });
   await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", () => resolve()); });
   const address = server.address(); if (!address || typeof address === "string") throw new Error("todo target did not expose a TCP port");
-  return { baseUrl: "http://127.0.0.1:" + address.port, getItems: () => items.map((item) => ({ ...item })), getStats: () => ({ ...stats }), close: async () => { if (!server.listening) return; await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())); } };
+  return { baseUrl: "http://127.0.0.1:" + address.port, getItems: () => items.map((item) => ({ ...item })), getStats: () => ({ ...stats }), reset: () => { items.splice(0, items.length); nextId = 1; }, close: async () => { if (!server.listening) return; await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())); } };
 }
 
 if (import.meta.url === `file://${process.argv[1]?.replaceAll("\\", "/")}`) startTodoTarget().then((target) => { console.log(target.baseUrl); }).catch((error) => { console.error(error); process.exitCode = 1; });

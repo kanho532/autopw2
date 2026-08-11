@@ -2,17 +2,15 @@
 
 AutoPW is a Profile-driven Web quality audit engine delivered as a Codex local MCP plugin. The MCP Server is the sole primary public entry; the maintenance CLI and internal Core API are not the audit path.
 
-The repository has completed **M9.0 Baseline Frozen**, **M9.1 Declarative Plan Contract**, **M9.2 Case-scoped Evidence Storage**, **M9.3 Unified Plan Runner**, **M9.4 Legacy-12 Parity**, **M9.5 Structured Discovery**, **M9.6 Requirement Derivation**, **M9.7 Planner/Compiler Closed Loop**, **M9.8 Coverage-governed Audit**, and **M9.9 External Target Integration**. The generated-plan migration remains opt-in for compatibility: the default Core engines are `plan_engine=fixture` and `discovery_engine=legacy`; declarative execution uses `plan_engine=declarative` and `discovery_engine=structured`.
+The repository has completed **M9.0–M9.9** and **M10 Release Hardening**. The default Core engines are now `plan_engine=declarative` and `discovery_engine=structured`. The Fixture/legacy pair remains available only as an explicit compatibility lane for one release cycle.
 
-This repository has completed **M8 (release hardening)**. M0 freezes the public contracts; M1 provides the durable MCP Control Plane; M2 runs a deterministic Chromium audit through MCP; M3 adds bounded Discovery, Diff/Derivation, CDD Preview and honest full-matrix projections; M4 adds candidate-only Planner integration and template caching; M5 adds persisted Lease/heartbeat state, safe recovery, cancellation and idempotent cleanup; M6 adds host-owned trust resolution, untrusted-PR restrictions, path/origin/adapter boundaries, production read-only enforcement and evidence/report redaction; M7 adds agent workflow observability and maintenance tooling; M8 adds multi-browser execution, release compatibility, performance, fault, retention and bounded soak gates.
+Earlier **M8 release hardening** established multi-browser execution, release compatibility, performance, fault, retention, and bounded soak gates. M10 extends that baseline with the generated-plan pipeline as the trusted default.
 
 ## Development language
 
-M9.4 Legacy-12 Parity, M9.5 Structured Discovery, M9.6 Requirement Derivation,
-M9.7 Planner/Compiler Closed Loop, M9.8 Coverage-governed Audit, and M9.9
-External Target Integration are complete. The default Core modes
-remain `plan_engine=fixture` and `discovery_engine=legacy` for compatibility;
-the declarative path is selected explicitly.
+M10 switches the trusted Core default to declarative planning and structured
+discovery. Existing M0–M8 fixture acceptance continues through an explicit
+legacy compatibility configuration in the host harness.
 
 The primary implementation language is **TypeScript** (`.ts`) with strict type checking. JavaScript modules are limited to generators and verification harnesses; new runtime code belongs in the TypeScript packages and is consumed through the build output.
 
@@ -38,6 +36,9 @@ npm run verify:m9:requirements
 npm run verify:m9:generated-plan
 npm run verify:m9:coverage-gate
 npm run verify:m9:external
+npm run verify:m9
+npm run verify:m10
+npm run verify:v2.2
 ```
 `verify:m6` includes the M1–M6 acceptance gates. M2–M6 install and use the pinned Playwright Chromium fixture where the vertical slice requires it.
 `verify:m9:baseline` reruns the M0–M8 chain and checks the normalized M9.0 Golden Snapshot.
@@ -48,6 +49,10 @@ audits, coverage thresholds, gate ordering, and coverage/case-path reporting.
 `replace`, and `overlay` plan modes. The CLI accepts `--target`, `--url`,
 `--plan`, `--plan-mode`, `--tier`, `--data-root`, and `--browser`; it writes
 `latest.json` and run-scoped reports under the selected data root.
+`verify:m10` checks the default declarative path, dual-run compatibility lane,
+release metrics, deterministic identifiers, security boundaries, cache recovery,
+and the API response-body limit. `verify:v2.2` is the complete v2.2 release
+chain and intentionally includes the prior v2.1 and M9 gates.
 
 ## Layout
 - `apps/todo-fixture-target` - stable repository-owned Todo target for M9.4/M9.5 and M9.9 external-target verification
