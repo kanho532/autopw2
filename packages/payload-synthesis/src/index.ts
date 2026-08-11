@@ -42,7 +42,7 @@ export function synthesizeApplicationPayloads(graph: ApplicationGraph, fixtureOv
   for (const resource of graph.nodes.resources) {
     const operations = resource.operation_ids.map((id) => operationById.get(id)).filter((item): item is OperationNode => Boolean(item));
     const fields = graph.nodes.fields.filter((item) => item.resource_id === resource.id);
-    for (const operation of operations.filter((item) => ["POST", "PUT", "PATCH"].includes(item.method || ""))) payloads.push(synthesizePayload(operation, resource, fields));
+    for (const operation of operations.filter((item) => item.protocol === "HTTP" && ["POST", "PUT", "PATCH"].includes(item.method || ""))) payloads.push(synthesizePayload(operation, resource, fields));
     fixtures.push(synthesizeFixture(resource, operations, payloads, fixtureOverrides[resource.id]));
   }
   return { schema_version: PAYLOAD_SYNTHESIS_SCHEMA_VERSION, payloads: payloads.sort((a, b) => a.operation_id.localeCompare(b.operation_id)), fixtures: fixtures.sort((a, b) => a.resource_id.localeCompare(b.resource_id)) };
@@ -68,10 +68,11 @@ function synthesizePayload(operation: OperationNode, resource: ResourceNode, fie
 }
 
 function synthesizeFixture(resource: ResourceNode, operations: OperationNode[], payloads: SynthesizedPayload[], override?: FixtureOverride): ResourceFixtureBinding {
-  const create = operations.find((item) => item.method === "POST");
-  const read = operations.find((item) => item.method === "GET" && item.path_template?.includes(":")) || operations.find((item) => item.method === "GET");
-  const update = operations.find((item) => item.method === "PATCH" || item.method === "PUT");
-  const cleanup = operations.find((item) => item.method === "DELETE");
+  const httpOperations = operations.filter((item) => item.protocol === "HTTP");
+  const create = httpOperations.find((item) => item.method === "POST");
+  const read = httpOperations.find((item) => item.method === "GET" && item.path_template?.includes(":")) || httpOperations.find((item) => item.method === "GET");
+  const update = httpOperations.find((item) => item.method === "PATCH" || item.method === "PUT");
+  const cleanup = httpOperations.find((item) => item.method === "DELETE");
   const payload = create ? payloads.find((item) => item.operation_id === create.id) : undefined;
   if (!create) {
     if (!override) return { resource_id: resource.id, kind: "blocked", identity: { kind: "none", proven: false, reason: "RESOURCE_HAS_NO_CREATE_OPERATION" }, operation_ids: operations.map((item) => item.id).sort(), proven: false, reason: "EXPLICIT_SEED_OR_MANUAL_FIXTURE_REQUIRED" };

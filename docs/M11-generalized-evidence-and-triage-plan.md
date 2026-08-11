@@ -177,9 +177,24 @@ Exit criteria:
 
 ### Phase 8 — Generalization acceptance and rollout
 
+Status: implemented in the ninth M11 delivery.
+
 - Add REST multi-resource, Axios, nested router, Next.js, OpenAPI-only, RBAC, pagination, seeded-data, read-only, GraphQL/RPC and URL-only targets.
 - Run the ApplicationGraph path in dual mode before retiring legacy heuristics.
 - Require zero cross-resource fixture bindings and zero false product defects in controlled generator-error fixtures.
+
+Implemented rollout contract:
+
+- ApplicationGraph remains the only authoritative lane; the retired heuristic inputs run as a read-only `legacy_observations` shadow lane and cannot alter requirements or plans.
+- Every coverage derivation records `application-graph-rollout.json` and embeds the same versioned snapshot in `cdd.json`.
+- Static discovery now preserves OpenAPI authorization requirements/scopes, pagination semantics, mounted nested-router paths, and GraphQL/RPC client operations.
+- The generalization gate requires all twelve target classes, an explicit proven seed for the controlled read-only resource, zero cross-resource fixture bindings, zero false product defects in controlled generator-error cases, and dual-mode evidence.
+
+Exit criteria:
+
+- `npm run verify:m11:phase8` passes the targeted generalization matrix and rollout regression checks.
+- The acceptance gate reports `READY` only when every matrix capability is observed and all zero-tolerance checks pass.
+- Deliberately injected cross-resource bindings and false product classifications block rollout.
 
 ## 4. Target pipeline
 

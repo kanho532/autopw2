@@ -36,7 +36,9 @@ function extractOpenApi(input: StaticAdapterInput, document: Record<string, unkn
       endpoints.push(adapterFact("endpoint", [input.relative, method, pathTemplate, operationId].join("|"), {
         method, path_template: normalizeEndpoint(pathTemplate), route: normalizeEndpoint(pathTemplate), operation: operationKind(method, pathTemplate),
         operation_id: operationId || undefined, feature_id: featureId, adapter: "openapi", request_schema_ref: requestSchemaReference(operationValue),
-        response_schema_refs: responseSchemaRefs, response_statuses: responseStatuses(operationValue), identity_candidates: responseIdentityCandidates(operationValue, document), source_kind: "OPENAPI", confidence: 0.99, source_ref: { path: input.relative }
+        response_schema_refs: responseSchemaRefs, response_statuses: responseStatuses(operationValue), identity_candidates: responseIdentityCandidates(operationValue, document),
+        auth_required: Array.isArray(operationValue.security) && operationValue.security.length > 0, auth_scopes: openApiAuthScopes(operationValue),
+        source_kind: "OPENAPI", confidence: 0.99, source_ref: { path: input.relative }
       }));
       if (requestSchema) facts.push(...schemaFacts(input.relative, requestSchema, featureId, normalizeEndpoint(pathTemplate), "OPENAPI", 0.99, document));
     }
@@ -54,16 +56,17 @@ function extractStandaloneSchema(input: StaticAdapterInput, document: Record<str
 function extractTypeScript(input: StaticAdapterInput): StaticAdapterResult {
   const sourceFile = ts.createSourceFile(input.relative, input.source, ts.ScriptTarget.Latest, true, scriptKind(input.relative));
   const constants = stringConstants(sourceFile);
+  const routerPrefixes = mountedRouterPrefixes(sourceFile, constants);
   const endpoints: DiscoveryFact[] = [];
   const seen = new Set<string>();
-  const add = (method: string, endpoint: string, node: ts.Node, adapter: string, featureId = input.featureIds[0] || featureFromPath(endpoint)): void => {
+  const add = (method: string, endpoint: string, node: ts.Node, adapter: string, featureId = input.featureIds[0] || featureFromPath(endpoint), attributes: Record<string, unknown> = {}): void => {
     const normalized = normalizeEndpoint(endpoint);
     const key = [method, normalized, adapter, node.getStart(sourceFile)].join("|");
     if (seen.has(key)) return;
     seen.add(key);
     endpoints.push(adapterFact("endpoint", [input.relative, key].join("|"), {
       method, path_template: normalized, route: input.route, operation: operationKind(method, normalized), feature_id: featureId,
-      adapter, source_kind: "AST", confidence: 0.92, source_ref: { path: input.relative, line: sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1 }
+      adapter, source_kind: "AST", confidence: 0.92, source_ref: { path: input.relative, line: sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1 }, ...attributes
     }));
   };
 
@@ -78,7 +81,12 @@ function extractTypeScript(input: StaticAdapterInput): StaticAdapterResult {
         const method = member.toUpperCase();
         if (HTTP_METHODS.has(method) && isHttpReceiver(receiver)) {
           const endpoint = expressionString(node.arguments[0], constants);
-          if (endpoint) add(method, endpoint, node, clientAdapter(receiver));
+          if (endpoint) add(method, routerPrefixes.has(receiver) ? joinPaths(routerPrefixes.get(receiver) || "", endpoint) : endpoint, node, clientAdapter(receiver));
+        } else if ((member === "query" || member === "mutate" || member === "mutation") && /graphql|apollo|gql/i.test(receiver)) {
+          add("POST", "/graphql", node, "graphql-client", input.featureIds[0] || "graphql", { protocol: "GRAPHQL", operation: member === "query" ? "graphql_query" : "graphql_mutation" });
+        } else if ((member === "query" || member === "mutate" || member === "mutation") && /(?:^|\.)trpc(?:\.|$)/i.test(receiver)) {
+          const procedure = receiver.replace(/^.*?trpc\.?/i, "").replaceAll(".", "/") || "root";
+          add("POST", "/rpc/" + procedure, node, "trpc-client", input.featureIds[0] || featureFromPath(procedure), { protocol: "RPC", operation: member === "query" ? "rpc_query" : "rpc_mutation" });
         } else if (member === "route" && isObjectLiteral(node.arguments[0])) {
           const object = node.arguments[0];
           const methodValue = propertyString(object, "method", constants).toUpperCase();
@@ -110,7 +118,7 @@ function extractTypeScript(input: StaticAdapterInput): StaticAdapterResult {
   return { endpoints, facts: [], adapter: "typescript-ast" };
 }
 
-function extractConditionalRoutes(sourceFile: ts.SourceFile, input: StaticAdapterInput, add: (method: string, endpoint: string, node: ts.Node, adapter: string, featureId?: string) => void): void {
+function extractConditionalRoutes(sourceFile: ts.SourceFile, input: StaticAdapterInput, add: (method: string, endpoint: string, node: ts.Node, adapter: string, featureId?: string, attributes?: Record<string, unknown>) => void): void {
   const guardedPaths = new Map<string, string>();
   const collectGuards = (node: ts.Node): void => {
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer && ts.isCallExpression(node.initializer) && ts.isPropertyAccessExpression(node.initializer.expression) && node.initializer.expression.name.text === "match") {
@@ -177,7 +185,7 @@ function regexRoute(node: ts.Expression | undefined): string {
   return value.startsWith("/") ? normalizeEndpoint(value) : "";
 }
 
-function extractNestControllers(sourceFile: ts.SourceFile, input: StaticAdapterInput, add: (method: string, endpoint: string, node: ts.Node, adapter: string, featureId?: string) => void): void {
+function extractNestControllers(sourceFile: ts.SourceFile, input: StaticAdapterInput, add: (method: string, endpoint: string, node: ts.Node, adapter: string, featureId?: string, attributes?: Record<string, unknown>) => void): void {
   for (const statement of sourceFile.statements) {
     if (!ts.isClassDeclaration(statement)) continue;
     const prefix = decoratorPath(statement, "Controller");
@@ -191,7 +199,7 @@ function extractNestControllers(sourceFile: ts.SourceFile, input: StaticAdapterI
   }
 }
 
-function extractNextRoute(sourceFile: ts.SourceFile, input: StaticAdapterInput, add: (method: string, endpoint: string, node: ts.Node, adapter: string, featureId?: string) => void): void {
+function extractNextRoute(sourceFile: ts.SourceFile, input: StaticAdapterInput, add: (method: string, endpoint: string, node: ts.Node, adapter: string, featureId?: string, attributes?: Record<string, unknown>) => void): void {
   if (!/(?:^|\/)app\/.*\/route\.[cm]?[jt]sx?$/i.test(input.relative)) return;
   const routePath = nextRoutePath(input.relative);
   for (const statement of sourceFile.statements) {
@@ -275,6 +283,10 @@ function responseSchemaReferences(operation: Record<string, unknown>): string[] 
 }
 function requestSchemaReference(operation: Record<string, unknown>): string { if (!isRecord(operation.requestBody)) return ""; const direct = schemaRefOf(operation.requestBody); if (direct) return direct; if (isRecord(operation.requestBody.content)) for (const media of Object.values(operation.requestBody.content)) if (isRecord(media) && isRecord(media.schema) && typeof media.schema.$ref === "string") return media.schema.$ref; return ""; }
 function responseStatuses(operation: Record<string, unknown>): number[] { if (!isRecord(operation.responses)) return []; return Object.keys(operation.responses).map(Number).filter((status) => Number.isInteger(status) && status >= 100 && status <= 599).sort((a, b) => a - b); }
+function openApiAuthScopes(operation: Record<string, unknown>): string[] {
+  if (!Array.isArray(operation.security)) return [];
+  return [...new Set(operation.security.filter(isRecord).flatMap((requirement) => Object.entries(requirement).flatMap(([scheme, scopes]) => Array.isArray(scopes) && scopes.length ? scopes.filter((scope): scope is string => typeof scope === "string").map((scope) => `${scheme}:${scope}`) : [scheme])))].sort();
+}
 
 function resolveSchema(value: Record<string, unknown>, document: Record<string, unknown>): Record<string, unknown> | undefined {
   const ref = stringValue(value.$ref);
@@ -314,8 +326,25 @@ function methodFromOptions(node: ts.Expression | undefined, constants = new Map<
 function propertyString(object: ts.ObjectLiteralExpression, name: string, constants = new Map<string, string>()): string { const property = object.properties.find((item) => ts.isPropertyAssignment(item) && propertyName(item.name) === name); return property && ts.isPropertyAssignment(property) ? expressionString(property.initializer, constants) : ""; }
 function propertyName(node: ts.PropertyName): string { return ts.isIdentifier(node) || ts.isStringLiteralLike(node) ? node.text : ""; }
 function isObjectLiteral(node: ts.Expression | undefined): node is ts.ObjectLiteralExpression { return Boolean(node && ts.isObjectLiteralExpression(node)); }
-function clientAdapter(receiver: string): string { if (/axios/i.test(receiver)) return "axios"; if (/fastify/i.test(receiver)) return "fastify"; if (/^(?:app|router|server)$/i.test(receiver)) return "server-router"; return /client|http|api|request/i.test(receiver) ? "request-wrapper" : "server-router"; }
-function isHttpReceiver(receiver: string): boolean { return /(?:^|\.)(?:axios|fastify|app|router|server|client|http|api|request)$/i.test(receiver) || /axios|fastify|(?:api|http|request)Client/i.test(receiver); }
+function clientAdapter(receiver: string): string { if (/axios/i.test(receiver)) return "axios"; if (/fastify/i.test(receiver)) return "fastify"; if (/^(?:app|router|server)$/i.test(receiver) || /router$/i.test(receiver)) return "server-router"; return /client|http|api|request/i.test(receiver) ? "request-wrapper" : "server-router"; }
+function isHttpReceiver(receiver: string): boolean { return /(?:^|\.)(?:axios|fastify|app|router|server|client|http|api|request)$/i.test(receiver) || /router$/i.test(receiver) || /axios|fastify|(?:api|http|request)Client/i.test(receiver); }
+function mountedRouterPrefixes(sourceFile: ts.SourceFile, constants: Map<string, string>): Map<string, string> {
+  const mounts: Array<{ parent: string; child: string; prefix: string }> = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === "use" && ts.isIdentifier(node.arguments[1])) {
+      const prefix = expressionString(node.arguments[0], constants);
+      if (prefix.startsWith("/")) mounts.push({ parent: node.expression.expression.getText(sourceFile), child: node.arguments[1].text, prefix });
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  const result = new Map<string, string>();
+  for (let pass = 0; pass <= mounts.length; pass += 1) for (const mount of mounts) {
+    const parentPrefix = /^(?:app|server|fastify)$/i.test(mount.parent) ? "" : result.get(mount.parent);
+    if (parentPrefix !== undefined) result.set(mount.child, joinPaths(parentPrefix, mount.prefix));
+  }
+  return result;
+}
 function decoratorPath(node: ts.Node, name: string): string | undefined { const decorators = ts.canHaveDecorators(node) ? ts.getDecorators(node) || [] : []; for (const decorator of decorators) { const expression = decorator.expression; if (ts.isCallExpression(expression) && ts.isIdentifier(expression.expression) && expression.expression.text === name) return expressionString(expression.arguments[0]); if (ts.isIdentifier(expression) && expression.text === name) return ""; } return undefined; }
 function titleCase(value: string): string { return value[0] + value.slice(1).toLowerCase(); }
 function hasExport(node: ts.Node & { modifiers?: ts.NodeArray<ts.ModifierLike> }): boolean { return Boolean(node.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)); }
@@ -326,7 +355,7 @@ function stringConstants(sourceFile: ts.SourceFile): Map<string, string> { const
 function inlineScriptLiterals(sourceFile: ts.SourceFile): Array<{ pos: number; text: string }> { const result: Array<{ pos: number; text: string }> = []; const visit = (node: ts.Node): void => { if ((ts.isNoSubstitutionTemplateLiteral(node) || ts.isStringLiteralLike(node)) && /\bfetch\s*\(/.test(node.text)) { const scripts = [...node.text.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)]; if (scripts.length) scripts.forEach((match, index) => result.push({ pos: node.pos + index, text: match[1] })); else result.push({ pos: node.pos, text: node.text }); } ts.forEachChild(node, visit); }; visit(sourceFile); return result; }
 function propertyAccessName(node: ts.Expression): string { return ts.isPropertyAccessExpression(node) ? node.name.text : ""; }
 function isEquality(kind: ts.SyntaxKind): boolean { return kind === ts.SyntaxKind.EqualsEqualsEqualsToken || kind === ts.SyntaxKind.EqualsEqualsToken; }
-function operationKind(method: string, endpoint: string): string { if (/summary/i.test(endpoint)) return "summary"; if (/count/i.test(endpoint)) return "count"; if (/\?.*(?:q|query|search)=/i.test(endpoint)) return "search"; return ({ GET: "read", POST: "create", PUT: "update", PATCH: "update", DELETE: "delete", OPTIONS: "cors" } as Record<string, string>)[method] || method.toLowerCase(); }
+function operationKind(method: string, endpoint: string): string { if (/summary/i.test(endpoint)) return "summary"; if (/count/i.test(endpoint)) return "count"; if (/\?.*(?:page|limit|offset|cursor)=/i.test(endpoint)) return "pagination"; if (/\?.*(?:q|query|search)=/i.test(endpoint)) return "search"; return ({ GET: "read", POST: "create", PUT: "update", PATCH: "update", DELETE: "delete", OPTIONS: "cors" } as Record<string, string>)[method] || method.toLowerCase(); }
 function normalizeEndpoint(endpoint: string): string { try { const url = new URL(endpoint, "http://discovery.invalid"); return ((decodeURIComponent(url.pathname).replace(/\{([^}]+)\}/g, ":$1").replace(/\/$/, "") || "/") + url.search.replace(/%20/g, " ")); } catch { return (endpoint || "/").replace(/\{([^}]+)\}/g, ":$1"); } }
 function collectionPath(value: string): string { return normalizeEndpoint(value).replace(/\?.*$/, "").replace(/\/:([^/]+).*$/, "") || "/"; }
 function featureFromPath(value: string): string { const segments = value.replace(/\?.*$/, "").split("/").filter(Boolean); return ([...segments].reverse().find((segment) => !segment.startsWith(":")) || path.basename(value, path.extname(value)) || "project_root").replace(/[^A-Za-z0-9_.:-]+/g, "_"); }

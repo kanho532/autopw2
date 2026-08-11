@@ -1,5 +1,7 @@
 import crypto from "node:crypto";
 
+export * from "./rollout.js";
+
 export const EVIDENCE_SCHEMA_VERSION = "autopw.evidence/1.0" as const;
 export const APPLICATION_GRAPH_SCHEMA_VERSION = "autopw.application-graph/1.0" as const;
 export const GRAPH_DIAGNOSTICS_SCHEMA_VERSION = "autopw.graph-diagnostics/1.0" as const;
