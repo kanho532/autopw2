@@ -53,7 +53,7 @@ function buildCoverageMetrics(options: AuditOptions, results: ExecutionResult[],
   const generatedResults = results.filter((item) => caseById.get(item.case_id)?.origin?.type === "generated");
   const generatorIssueIds = new Set(issues.filter((item) => item.classification === "PLAN_DEFECT" || item.classification === "TEST_DEFECT").map((item) => String(item.execution_id)));
   const productIssues = issues.filter((item) => item.classification === "PRODUCT_DEFECT");
-  const semantic = inTier.filter((item) => ["relation", "collection", "persistence", "deletion", "semantic"].includes(item.oracle_specification?.kind || ""));
+  const semantic = inTier.filter((item) => ["relation", "collection", "persistence", "deletion", "semantic", "ui_relation"].includes(item.oracle_specification?.kind || ""));
   const semanticBound = semantic.filter((item) => (options.requirementOracleMap?.[item.requirement_id] || []).length > 0);
   const cleanupPassed = cleanupRequired.filter((item) => results.find((candidate) => candidate.case_id === item.case_id)?.cleanup_status === "PASSED").length;
   return {

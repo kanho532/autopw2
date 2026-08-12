@@ -26,13 +26,15 @@ export interface CaseOrigin {
 }
 export interface OracleBinding { requirement_id: string; step_refs: string[]; }
 
-export type LocatorRef =
+export interface LocatorOptions { nth?: number; has_text?: string; within?: LocatorRef; }
+export type LocatorRef = (
   | { by: "role"; role: string; name?: string; exact?: boolean }
-  | { by: "label"; text: string }
+  | { by: "label"; text: string; exact?: boolean }
   | { by: "test_id"; value: string }
   | { by: "text"; text: string; exact?: boolean }
   | { by: "id"; value: string }
-  | { by: "css"; value: string; authority: "trusted_manual" };
+  | { by: "css"; value: string; authority: "trusted_manual" | "discovered_dom" }
+) & LocatorOptions;
 
 export interface GotoStep { action: "goto"; path: string; }
 export interface ReloadStep { action: "reload"; }
@@ -60,13 +62,15 @@ export interface SetVariableStep { action: "set_variable"; name: string; value: 
 export interface CaptureTextStep { action: "capture_text"; locator: LocatorRef; save_as: string; }
 export interface CaptureAttributeStep { action: "capture_attribute"; locator: LocatorRef; attribute: string; save_as: string; }
 export interface CaptureJsonStep { action: "capture_json"; source: string; path?: string; save_as: string; }
-export interface SemanticValueRef { source: string; path?: string; aggregate?: "length" | "sum"; }
+export interface CaptureCountStep { action: "capture_count"; locator: LocatorRef; save_as: string; }
+export interface CaptureTextsStep { action: "capture_texts"; locator: LocatorRef; save_as: string; }
+export interface SemanticValueRef { source: string; path?: string; aggregate?: "length" | "sum" | "number"; }
 export type SemanticOperand = SemanticValueRef | { literal: unknown } | { sum: SemanticOperand[] };
-export interface ExpectRelationStep { action: "expect_relation"; left: SemanticOperand; operator: "equals" | "not_equals" | "greater_than" | "greater_or_equal" | "less_than" | "less_or_equal"; right: SemanticOperand; }
-export interface CollectionPredicate { path: string; operator: "equals" | "contains" | "exists"; value?: unknown; }
+export interface ExpectRelationStep { action: "expect_relation"; left: SemanticOperand; operator: "equals" | "not_equals" | "greater_than" | "greater_or_equal" | "less_than" | "less_or_equal" | "same_partition"; right: SemanticOperand; }
+export interface CollectionPredicate { path: string; operator: "equals" | "contains" | "exists" | "in"; value?: unknown; }
 export interface ExpectCollectionStep { action: "expect_collection"; source: string; path?: string; quantifier: "every" | "some" | "none"; predicate: CollectionPredicate; }
 
-export type TestStep = GotoStep | ReloadStep | LocatorActionStep | FillStep | PressStep | WaitForStep | ApiRequestStep | ExpectVisibleStep | ExpectTextStep | ExpectValueStep | ExpectCountStep | ExpectUrlStep | ExpectCheckedStep | ExpectNoConsoleErrorsStep | ExpectStatusStep | ExpectHeaderStep | ExpectJsonStep | ExpectJsonSchemaStep | SetVariableStep | CaptureTextStep | CaptureAttributeStep | CaptureJsonStep | ExpectRelationStep | ExpectCollectionStep;
+export type TestStep = GotoStep | ReloadStep | LocatorActionStep | FillStep | PressStep | WaitForStep | ApiRequestStep | ExpectVisibleStep | ExpectTextStep | ExpectValueStep | ExpectCountStep | ExpectUrlStep | ExpectCheckedStep | ExpectNoConsoleErrorsStep | ExpectStatusStep | ExpectHeaderStep | ExpectJsonStep | ExpectJsonSchemaStep | SetVariableStep | CaptureTextStep | CaptureAttributeStep | CaptureJsonStep | CaptureCountStep | CaptureTextsStep | ExpectRelationStep | ExpectCollectionStep;
 
 export type FixtureDefinition = Record<string, unknown>;
 

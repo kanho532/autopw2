@@ -36,7 +36,8 @@ export function buildCandidateCatalog({ discovery, requirements, manualOverlay =
     catalog.actions[actionId] = action;
     const expectationId = "exp_" + safeId(requirement.requirement_id);
     const expectationStep = createExpectationStep(requirement, endpoint, locator);
-    catalog.expectations[expectationId] = candidate({ id: expectationId, kind: "expectation", requirement, caseId, route_id: routeId, origin: typeof manualOverlay.allowed_origin === "string" ? manualOverlay.allowed_origin : undefined, strength: "strong", step: expectationStep, source: "rule" });
+    const strength = ["route_loads", "not_found_semantics", "cors_allows_operation"].includes(requirement.intent) ? "normal" : "strong";
+    catalog.expectations[expectationId] = candidate({ id: expectationId, kind: "expectation", requirement, caseId, route_id: routeId, origin: typeof manualOverlay.allowed_origin === "string" ? manualOverlay.allowed_origin : undefined, strength, step: expectationStep, source: "rule" });
     if (requirement.intent === "required_field_rejected" || requirement.intent === "enum_validation") {
       const inputId = "input_" + safeId(requirement.requirement_id);
       catalog.inputs[inputId] = candidate({ id: inputId, kind: "input", requirement, caseId, route_id: routeId, source: "rule", body: requirement.intent === "enum_validation" ? { priority: "unsupported" } : {} });
@@ -49,7 +50,7 @@ export function buildCandidateCatalog({ discovery, requirements, manualOverlay =
 export function buildRequirementPlannerInput(requirements: PlannerRequirementLike[], catalog: CandidateCatalog): PlannerSkeleton[] {
   return [...requirements].sort((a, b) => a.requirement_id.localeCompare(b.requirement_id)).map((requirement) => {
     const caseId = requirementCaseId(requirement.requirement_id);
-    return { case_id: caseId, requirement_id: requirement.requirement_id, feature_id: requirement.feature_id, scenario: requirement.scenario, priority: requirement.priority, route_id: "route_" + safeId(requirement.requirement_id), action_ids: Object.values(catalog.actions).filter((item) => item.case_id === caseId).map((item) => item.id).sort(), expectation_ids: Object.values(catalog.expectations).filter((item) => item.case_id === caseId).map((item) => item.id).sort(), status: requirement.status };
+    return { case_id: caseId, requirement_id: requirement.requirement_id, feature_id: requirement.feature_id, intent: requirement.intent, scenario: requirement.scenario, priority: requirement.priority, route_id: "route_" + safeId(requirement.requirement_id), action_ids: Object.values(catalog.actions).filter((item) => item.case_id === caseId).map((item) => item.id).sort(), expectation_ids: Object.values(catalog.expectations).filter((item) => item.case_id === caseId).map((item) => item.id).sort(), status: requirement.status };
   });
 }
 
@@ -85,7 +86,7 @@ function selectEndpointFact(requirement: PlannerRequirementLike, candidates: Arr
     case "summary_is_consistent": return matches("GET", "summary");
     case "count_consistent": return matches("GET", "count");
     case "cors_allows_operation": return matches("OPTIONS", "cors");
-    default: return candidates[0];
+    default: return matches("GET") || candidates[0];
   }
 }
 
@@ -116,6 +117,6 @@ function createExpectationStep(requirement: PlannerRequirementLike, endpoint: Pl
 function candidate({ id, kind, requirement, caseId, ...fields }: { id: string; kind: PlannerCandidate["kind"]; requirement: PlannerRequirementLike; caseId: string } & Partial<PlannerCandidate>): PlannerCandidate {
   return { id, kind, case_id: caseId, requirement_id: requirement.requirement_id, feature_id: requirement.feature_id, scenario: requirement.scenario, confidence: requirement.confidence, risk: requirement.risk, ...fields };
 }
-function concretePath(value: string, intent: string): string { const path = value.replace(/:id/g, intent === "not_found_semantics" ? "missing-task" : "task_generated").replace(/:query/g, "AutoPW"); return safePath(path); }
+function concretePath(value: string, intent: string): string { const path = value.replace(/:id/g, intent === "not_found_semantics" ? "999999999" : "task_generated").replace(/:query/g, "AutoPW"); return safePath(path); }
 function safePath(value: string): string { const path = value.startsWith("/") ? value : "/" + value; return path.replace(/[^A-Za-z0-9_./?=&:%{}$-]/g, "_"); }
 function safeId(value: string): string { return value.replace(/[^A-Za-z0-9_.:-]+/g, "_").slice(0, 90); }

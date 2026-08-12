@@ -8,7 +8,7 @@ import { deriveGraphRequirements } from "./requirements-v2.js";
 
 export type Tier = "smoke" | "fast" | "full";
 export type CoverageStatus = "PLANNED" | "BLOCKED" | "NOT_APPLICABLE" | "TIER_SKIPPED";
-export type RequirementIntent = "route_loads" | "create_succeeds" | "required_field_rejected" | "boundary_rejected" | "not_found_semantics" | "route_detail" | "completed_state" | "delete_removes_entity" | "enum_validation" | "update_persists" | "search_filters_results" | "summary_is_consistent" | "count_consistent" | "cors_allows_operation";
+export type RequirementIntent = "route_loads" | "create_succeeds" | "required_field_rejected" | "boundary_rejected" | "not_found_semantics" | "route_detail" | "completed_state" | "delete_removes_entity" | "enum_validation" | "update_persists" | "search_filters_results" | "summary_is_consistent" | "count_consistent" | "cors_allows_operation" | "ui_count_consistent" | "ui_search_filters" | "ui_status_consistent" | "ui_create_refreshes" | "ui_toggle_refreshes" | "ui_delete_removes";
 export type RequirementStatus = "REQUIRED" | "PLANNED" | "BLOCKED" | "NOT_APPLICABLE" | "TIER_SKIPPED";
 export interface RequirementPrecondition { kind: string; refs: string[]; details?: Record<string, unknown>; }
 export interface RequirementOracle { kind: string; assertion: string; details?: Record<string, unknown>; }
@@ -27,7 +27,7 @@ export interface DerivationResult { schema_version: "2.1"; skeleton: Skeleton[];
 
 const ALLOWED_SCENARIOS: Record<Tier, Set<string>> = {
   smoke: new Set(["normal", "required_field"]),
-  fast: new Set(["normal", "required_field", "invalid_input", "empty_state"]),
+  fast: new Set(["normal", "required_field", "invalid_input", "empty_state", "boundary", "not_found", "persistence", "cors"]),
   full: new Set(["normal", "required_field", "invalid_input", "empty_state", "boundary", "service_error", "network_failure", "not_found", "persistence", "cors"])
 };
 const ALLOWED_PRIORITIES: Record<Tier, Set<string>> = { smoke: new Set(["P0"]), fast: new Set(["P0", "P1"]), full: new Set(["P0", "P1", "P2"]) };

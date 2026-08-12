@@ -146,7 +146,7 @@ export class AuditVerticalSlice {
       commitPhase("RUNTIME_FINALIZED", 84, "poll get_run_status");
       commitPhase("AUDITED", 89, "poll get_run_status");
       const gate = evaluateGate({ audit, coverage: reconciledCoverage, gatePolicy: gatePolicyFromRequest(request), issues: audit.issues, executionResults: execution.results });
-      const resultRef = this.storage.writeArtifact(run.run_id, "results.json", "results.json", "{}\n");
+      const resultRef = this.storage.artifactRef(run.run_id, "results.json", "results.json");
       const results = { schema_version: "2.1", run_id: run.run_id, gate: gate.gate, audit_status: audit.audit_status, exit_code: gate.exit_code, results_ref: resultRef, summary: { ...audit.summary, coverage: reconciledCoverage }, issues: audit.issues };
       const persistedResultsRef = this.storage.writeArtifact(run.run_id, "results.json", "results.json", JSON.stringify(results, null, 2) + "\n");
       const reportStartedAt = Date.now();
@@ -159,7 +159,7 @@ export class AuditVerticalSlice {
       commitPhase("GATED", 100, "get_run_result");
       const batchByExecution = new Map(execution.manifest.instances.map((instance) => [String(instance.execution_id), String(instance.batch_id)]));
       const tierByCase = new Map(effectivePlan.cases.map((item) => [item.case_id, item.effective_tier]));
-      return { gate: gate.gate, audit_status: audit.audit_status, results_ref: persistedResultsRef, report_ref: report.reportRef, gate_summary: { ...audit.summary, coverage: reconciledCoverage, reason: gate.reason, issues: audit.issues }, cases: execution.results.map((item) => ({ case_id: item.case_id, execution_id: item.execution_id, status: item.status, tier: tierByCase.get(item.case_id) || String(request.tier || request.base_tier || "fast"), batch_id: batchByExecution.get(item.execution_id), error: item.error, evidence_refs: item.evidence_refs })), evidence_refs: execution.results.flatMap((item) => item.evidence_refs) };
+      return { gate: gate.gate, audit_status: audit.audit_status, results_ref: persistedResultsRef, report_ref: report.reportRef, gate_summary: { ...audit.summary, coverage: reconciledCoverage, reason: gate.reason, issues: audit.issues }, cases: execution.results.map((item) => ({ case_id: item.case_id, execution_id: item.execution_id, status: item.status, tier: tierByCase.get(item.case_id) || String(request.tier || request.base_tier || "fast"), batch_id: batchByExecution.get(item.execution_id) || item.batch_id, error: item.error, evidence_refs: item.evidence_refs })), evidence_refs: execution.results.flatMap((item) => item.evidence_refs) };
     } finally { await target.close(); }
   }
 
@@ -211,7 +211,7 @@ export class AuditVerticalSlice {
       root: this.root,
       project_subpath: String(request.project_subpath || "."),
       target_url: targetUrl,
-      budget: { max_depth: 6, max_files: 500, timeout_ms: 3000, allowed_origins: allowedOrigins }
+      budget: { max_depth: 6, max_files: 500, timeout_ms: 10_000, live_timeout_ms: 10_000, route_timeout_ms: 5_000, allowed_origins: allowedOrigins }
     });
     const application = buildApplicationGraph(discovery);
     const sourceMappings = discovery.observations.filter((observation) => observation.kind === "source" && typeof observation.path === "string" && Array.isArray(observation.features)).map((observation) => ({ file_glob: String(observation.path), features: (observation.features as unknown[]).filter((feature): feature is string => typeof feature === "string") }));
@@ -226,7 +226,7 @@ export class AuditVerticalSlice {
       input_versions: {
         workspace_digest: digest(this.root), profile_digest: digest(String(request.profile_path || "")),
         route_map_digest: digest("default-route-map"), diff_digest: digest(String(request.diff_ref || "NOOP")),
-        auth_scope_id: String(request.auth_scope_id || "as_demo"), tier
+        auth_scope_id: authScopeFromRequest(request), tier
       }
     });
     const rolloutRequirementIds = Array.isArray(derivation.cdd.requirements) ? (derivation.cdd.requirements as TestRequirement[]).map((item) => item.requirement_id) : [];
@@ -273,7 +273,7 @@ export class AuditVerticalSlice {
     };
     const options: PlannerProviderOptions = { provider_id: "local-structured", provider_version: "1", model_id: "local-deterministic", timeout_ms: 2000, token_budget: 2048, temperature: 0, max_attempts: 2, ...this.plannerConfig };
     const cache = new PlanTemplateCache(path.join(this.storage.dataRoot, "plan-cache"));
-    const key = cache.key({ normalized_profile_digest: digest(String(request.profile_path || "default")), coverage_policy_digest: digest(JSON.stringify(request.coverage_policy || {})), scenario_contract_digest: digest("fixture-scenarios-v2"), route_map_digest: digest("fixture-route-map"), discovery_digest: plannerInputDigest(input), engine_version: "2.1", schema_version: "2.1", planner_provider_id: options.provider_id, planner_provider_version: options.provider_version, model_id: options.model_id, base_tier: String(request.tier || request.base_tier || "fast"), sorted_scope: skeletons.map((item) => item.case_id).sort(), locale: String(request.locale || "en-US"), auth_scope_id: String(request.auth_scope_id || "as_demo"), run_id: request.run_id, seed: request.seed });
+    const key = cache.key({ normalized_profile_digest: digest(String(request.profile_path || "default")), coverage_policy_digest: digest(JSON.stringify(request.coverage_policy || {})), scenario_contract_digest: digest("fixture-scenarios-v2"), route_map_digest: digest("fixture-route-map"), discovery_digest: plannerInputDigest(input), engine_version: "2.1", schema_version: "2.1", planner_provider_id: options.provider_id, planner_provider_version: options.provider_version, model_id: options.model_id, base_tier: String(request.tier || request.base_tier || "fast"), sorted_scope: skeletons.map((item) => item.case_id).sort(), locale: String(request.locale || "en-US"), auth_scope_id: authScopeFromRequest(request), run_id: request.run_id, seed: request.seed });
     const cached = cache.get(key);
     let output: PlannerOutput;
     let attempts = 0;
@@ -373,6 +373,10 @@ function stableJson(value: unknown): string {
   return JSON.stringify(value);
 }
 function isRecord(value: unknown): value is Record<string, unknown> { return Boolean(value) && typeof value === "object" && !Array.isArray(value); }
+function authScopeFromRequest(request: Record<string, unknown>): string {
+  const snapshot = isRecord(request.__trust_snapshot) ? request.__trust_snapshot : {};
+  return String(request.auth_scope_id || snapshot.auth_scope_id || "as_local");
+}
 function requiredMetric(metrics: Record<string, unknown>, name: string): number {
   const value = metrics[name];
   if (!Number.isFinite(value) || Number(value) < 0) throw Object.assign(new Error("discovery metric is missing or invalid: " + name), { code: "DISCOVERY_METRIC_MISSING" });
@@ -381,12 +385,11 @@ function requiredMetric(metrics: Record<string, unknown>, name: string): number 
 function matrixFromRequest(request: Record<string, unknown>): ExecutionMatrix | undefined {
   const value = isRecord(request.matrix) ? request.matrix : undefined;
   const tier = String(request.tier || request.base_tier || "fast");
-  if (!value && tier !== "full") return undefined;
-  const matrix = value || { browsers: ["chromium", "firefox", "webkit"], viewports: [{ width: 1280, height: 720 }, { width: 1440, height: 900 }], locales: ["en-US"], auth_scope_ids: ["as_demo"] };
+  const matrix = value || (tier === "full" ? { browsers: ["chromium", "firefox", "webkit"], viewports: [{ width: 1280, height: 720 }, { width: 1440, height: 900 }], locales: ["en-US"], auth_scope_ids: [authScopeFromRequest(request)] } : { auth_scope_ids: [authScopeFromRequest(request)] });
   return {
-    browsers: Array.isArray(matrix.browsers) ? matrix.browsers as ExecutionMatrix["browsers"] : undefined,
-    viewports: Array.isArray(matrix.viewports) ? matrix.viewports as ExecutionMatrix["viewports"] : undefined,
-    locales: Array.isArray(matrix.locales) ? matrix.locales.filter((item): item is string => typeof item === "string") : undefined,
-    auth_scope_ids: Array.isArray(matrix.auth_scope_ids) ? matrix.auth_scope_ids.filter((item): item is string => typeof item === "string") : undefined
+    ...(Array.isArray(matrix.browsers) ? { browsers: matrix.browsers as ExecutionMatrix["browsers"] } : {}),
+    ...(Array.isArray(matrix.viewports) ? { viewports: matrix.viewports as ExecutionMatrix["viewports"] } : {}),
+    ...(Array.isArray(matrix.locales) ? { locales: matrix.locales.filter((item): item is string => typeof item === "string") } : {}),
+    ...(Array.isArray(matrix.auth_scope_ids) ? { auth_scope_ids: matrix.auth_scope_ids.filter((item): item is string => typeof item === "string") } : {})
   };
 }

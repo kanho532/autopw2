@@ -27,7 +27,7 @@ export function triageFailure(input: TriageInput): TriageDecision {
   const origin = input.plan_origin || "unknown";
   const phase = input.signal?.phase || "unknown";
   const evidenceStrength = strength(input.case_confidence, [...(input.evidence_refs || []), ...(input.requirement_evidence_refs || [])]);
-  const oracleStrength: TriageDecision["oracle_strength"] = !input.oracle?.proven ? "UNPROVEN" : ["relation", "collection", "persistence", "deletion", "validation", "semantic"].includes(input.oracle.kind || "") ? "STRONG" : "BASIC";
+  const oracleStrength: TriageDecision["oracle_strength"] = !input.oracle?.proven ? "UNPROVEN" : ["relation", "collection", "persistence", "deletion", "validation", "semantic", "ui_relation"].includes(input.oracle.kind || "") ? "STRONG" : "BASIC";
   const base = { schema_version: TRIAGE_SCHEMA_VERSION, plan_origin: origin, evidence_strength: evidenceStrength, oracle_strength: oracleStrength, phase, ...(Object.hasOwn(input.signal || {}, "expected") ? { expected: input.signal?.expected } : {}), ...(Object.hasOwn(input.signal || {}, "actual") ? { actual: input.signal?.actual } : {}) };
   if (input.signal?.kind === "network" || input.proposed_classification === "INFRA_DEFECT") return { ...base, classification: "INFRA_DEFECT", confidence: "MEDIUM", reason: "LOW_LEVEL_INFRASTRUCTURE_SIGNAL" };
   if (phase === "setup" || phase === "cleanup") return { ...base, classification: origin === "generated" ? "PLAN_DEFECT" : "TEST_DEFECT", confidence: evidenceStrength === "LOW" ? "LOW" : "MEDIUM", reason: "FIXTURE_OR_LIFECYCLE_PHASE_FAILURE" };

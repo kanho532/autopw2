@@ -43,10 +43,10 @@
     },
     "locator": {
       "oneOf": [
-        {"type": "object", "additionalProperties": false, "required": ["by", "role"], "properties": {"by": {"const": "role"}, "role": {"type": "string", "minLength": 1}, "name": {"type": "string"}, "exact": {"type": "boolean"}}},
-        {"type": "object", "additionalProperties": false, "required": ["by", "text"], "properties": {"by": {"enum": ["label", "text"]}, "text": {"type": "string", "minLength": 1}, "exact": {"type": "boolean"}}},
-        {"type": "object", "additionalProperties": false, "required": ["by", "value"], "properties": {"by": {"enum": ["test_id", "id"]}, "value": {"type": "string", "minLength": 1}}},
-        {"type": "object", "additionalProperties": false, "required": ["by", "value", "authority"], "properties": {"by": {"const": "css"}, "value": {"type": "string", "minLength": 1}, "authority": {"const": "trusted_manual"}}}
+        {"type": "object", "additionalProperties": false, "required": ["by", "role"], "properties": {"by": {"const": "role"}, "role": {"type": "string", "minLength": 1}, "name": {"type": "string"}, "exact": {"type": "boolean"}, "nth": {"type": "integer", "minimum": -1}, "has_text": {"type": "string"}, "within": {"$ref": "#/$defs/locator"}}},
+        {"type": "object", "additionalProperties": false, "required": ["by", "text"], "properties": {"by": {"enum": ["label", "text"]}, "text": {"type": "string", "minLength": 1}, "exact": {"type": "boolean"}, "nth": {"type": "integer", "minimum": -1}, "has_text": {"type": "string"}, "within": {"$ref": "#/$defs/locator"}}},
+        {"type": "object", "additionalProperties": false, "required": ["by", "value"], "properties": {"by": {"enum": ["test_id", "id"]}, "value": {"type": "string", "minLength": 1}, "nth": {"type": "integer", "minimum": -1}, "has_text": {"type": "string"}, "within": {"$ref": "#/$defs/locator"}}},
+        {"type": "object", "additionalProperties": false, "required": ["by", "value", "authority"], "properties": {"by": {"const": "css"}, "value": {"type": "string", "minLength": 1}, "authority": {"enum": ["trusted_manual", "discovered_dom"]}, "nth": {"type": "integer", "minimum": -1}, "has_text": {"type": "string"}, "within": {"$ref": "#/$defs/locator"}}}
       ]
     },
     "step": {
@@ -56,13 +56,13 @@
         {"$ref": "#/$defs/expectText"}, {"$ref": "#/$defs/expectValue"}, {"$ref": "#/$defs/expectCount"}, {"$ref": "#/$defs/expectUrl"},
         {"$ref": "#/$defs/expectChecked"}, {"$ref": "#/$defs/noConsole"}, {"$ref": "#/$defs/expectStatus"}, {"$ref": "#/$defs/expectHeader"},
         {"$ref": "#/$defs/expectJson"}, {"$ref": "#/$defs/expectJsonSchema"}, {"$ref": "#/$defs/setVariable"}, {"$ref": "#/$defs/captureText"},
-        {"$ref": "#/$defs/captureAttribute"}, {"$ref": "#/$defs/captureJson"}, {"$ref": "#/$defs/expectRelation"}, {"$ref": "#/$defs/expectCollection"}
+        {"$ref": "#/$defs/captureAttribute"}, {"$ref": "#/$defs/captureJson"}, {"$ref": "#/$defs/captureCount"}, {"$ref": "#/$defs/captureTexts"}, {"$ref": "#/$defs/expectRelation"}, {"$ref": "#/$defs/expectCollection"}
       ]
     },
     "noCssStep": {
       "allOf": [
         {"$ref": "#/$defs/step"},
-        {"not": {"type": "object", "properties": {"locator": {"type": "object", "properties": {"by": {"const": "css"}}, "required": ["by"]}}, "required": ["locator"]}}
+        {"not": {"type": "object", "properties": {"locator": {"type": "object", "properties": {"by": {"const": "css"}, "authority": {"const": "trusted_manual"}}, "required": ["by", "authority"]}}, "required": ["locator"]}}
       ]
     },
     "goto": {"type": "object", "additionalProperties": false, "required": ["action", "path"], "properties": {"action": {"const": "goto"}, "path": {"$ref": "#/$defs/relativePath"}}},
@@ -88,9 +88,11 @@
     "captureText": {"type": "object", "additionalProperties": false, "required": ["action", "locator", "save_as"], "properties": {"action": {"const": "capture_text"}, "locator": {"$ref": "#/$defs/locator"}, "save_as": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.:-]*$"}}},
     "captureAttribute": {"type": "object", "additionalProperties": false, "required": ["action", "locator", "attribute", "save_as"], "properties": {"action": {"const": "capture_attribute"}, "locator": {"$ref": "#/$defs/locator"}, "attribute": {"type": "string", "minLength": 1}, "save_as": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.:-]*$"}}},
     "captureJson": {"type": "object", "additionalProperties": false, "required": ["action", "source", "save_as"], "properties": {"action": {"const": "capture_json"}, "source": {"type": "string", "minLength": 1}, "path": {"type": "string"}, "save_as": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.:-]*$"}}},
-    "semanticOperand": {"oneOf": [{"type": "object", "additionalProperties": false, "required": ["literal"], "properties": {"literal": {}}}, {"type": "object", "additionalProperties": false, "required": ["source"], "properties": {"source": {"type": "string", "minLength": 1}, "path": {"type": "string"}, "aggregate": {"enum": ["length", "sum"]}}}, {"type": "object", "additionalProperties": false, "required": ["sum"], "properties": {"sum": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/semanticOperand"}}}}]},
-    "expectRelation": {"type": "object", "additionalProperties": false, "required": ["action", "left", "operator", "right"], "properties": {"action": {"const": "expect_relation"}, "left": {"$ref": "#/$defs/semanticOperand"}, "operator": {"enum": ["equals", "not_equals", "greater_than", "greater_or_equal", "less_than", "less_or_equal"]}, "right": {"$ref": "#/$defs/semanticOperand"}}},
-    "expectCollection": {"type": "object", "additionalProperties": false, "required": ["action", "source", "quantifier", "predicate"], "properties": {"action": {"const": "expect_collection"}, "source": {"type": "string", "minLength": 1}, "path": {"type": "string"}, "quantifier": {"enum": ["every", "some", "none"]}, "predicate": {"type": "object", "additionalProperties": false, "required": ["path", "operator"], "properties": {"path": {"type": "string"}, "operator": {"enum": ["equals", "contains", "exists"]}, "value": {}}}}},
+    "captureCount": {"type": "object", "additionalProperties": false, "required": ["action", "locator", "save_as"], "properties": {"action": {"const": "capture_count"}, "locator": {"$ref": "#/$defs/locator"}, "save_as": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.:-]*$"}}},
+    "captureTexts": {"type": "object", "additionalProperties": false, "required": ["action", "locator", "save_as"], "properties": {"action": {"const": "capture_texts"}, "locator": {"$ref": "#/$defs/locator"}, "save_as": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_.:-]*$"}}},
+    "semanticOperand": {"oneOf": [{"type": "object", "additionalProperties": false, "required": ["literal"], "properties": {"literal": {}}}, {"type": "object", "additionalProperties": false, "required": ["source"], "properties": {"source": {"type": "string", "minLength": 1}, "path": {"type": "string"}, "aggregate": {"enum": ["length", "sum", "number"]}}}, {"type": "object", "additionalProperties": false, "required": ["sum"], "properties": {"sum": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/semanticOperand"}}}}]},
+    "expectRelation": {"type": "object", "additionalProperties": false, "required": ["action", "left", "operator", "right"], "properties": {"action": {"const": "expect_relation"}, "left": {"$ref": "#/$defs/semanticOperand"}, "operator": {"enum": ["equals", "not_equals", "greater_than", "greater_or_equal", "less_than", "less_or_equal", "same_partition"]}, "right": {"$ref": "#/$defs/semanticOperand"}}},
+    "expectCollection": {"type": "object", "additionalProperties": false, "required": ["action", "source", "quantifier", "predicate"], "properties": {"action": {"const": "expect_collection"}, "source": {"type": "string", "minLength": 1}, "path": {"type": "string"}, "quantifier": {"enum": ["every", "some", "none"]}, "predicate": {"type": "object", "additionalProperties": false, "required": ["path", "operator"], "properties": {"path": {"type": "string"}, "operator": {"enum": ["equals", "contains", "exists", "in"]}, "value": {}}}}},
     "case": {
       "type": "object", "additionalProperties": false,
       "required": ["case_id", "title", "feature_id", "requirement_refs", "scenario", "priority", "effective_tier", "kind", "risk", "confidence", "execution_policy", "steps"],

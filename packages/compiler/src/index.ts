@@ -30,7 +30,10 @@ export function compileTestPlan({ requirements, candidateCatalog, plannerOutput,
     const generated = buildRequirementExecution(requirement, selection.caseId, selectedActions, selectedExpectations, candidateCatalog);
     const steps = generated.steps;
     if (steps.length === 0) { unmapped.push({ requirement_id: requirement.requirement_id, reason: "NO_SELECTED_STEPS" }); continue; }
-    const kind = steps.some((step) => step.action === "api_request") && steps.some((step) => step.action !== "api_request" && step.action !== "expect_status") ? "hybrid" : steps.some((step) => step.action === "api_request") ? "api" : "ui";
+    const allSteps = [...generated.setup, ...steps, ...generated.cleanup];
+    const hasApi = allSteps.some((step) => step.action === "api_request");
+    const hasUi = allSteps.some((step) => UI_ACTIONS.has(step.action));
+    const kind = hasApi && hasUi ? "hybrid" : hasUi ? "ui" : "api";
     const effectiveTier = tierForRequirement(requirement);
     cases.push({ case_id: selection.caseId, origin: { type: "generated", source_ref: "m9.7:planner" }, title: `${requirement.intent} for ${requirement.feature_id}`, feature_id: requirement.feature_id, requirement_refs: [requirement.requirement_id], ...(generated.oracleBindings.length ? { oracle_bindings: [{ requirement_id: requirement.requirement_id, step_refs: generated.oracleBindings.map((value) => value.slice(value.lastIndexOf(":") + 1)) }] } : {}), scenario: validScenario(requirement.scenario), priority: requirement.priority, effective_tier: effectiveTier, kind, risk: requirement.risk, confidence: requirement.confidence, execution_policy: { production_allowed: requirement.risk === "read_only", isolated_fixture_required: requirement.risk !== "read_only" }, ...(generated.setup.length ? { setup: generated.setup } : {}), steps, ...(generated.cleanup.length ? { cleanup: generated.cleanup } : {}) });
     requirementCaseMap[requirement.requirement_id] = [selection.caseId];
@@ -52,6 +55,11 @@ export function compileTestPlan({ requirements, candidateCatalog, plannerOutput,
 }
 
 function buildRequirementExecution(requirement: RequirementLike, caseId: string, selectedActions: Array<{ actionTemplateId: string; locatorId?: string }>, selectedExpectations: string[], catalog: CandidateCatalog): { setup: TestStep[]; steps: TestStep[]; cleanup: TestStep[]; oracleBindings: string[] } {
+  const uiBehavior = buildUiBehaviorExecution(requirement, caseId);
+  if (uiBehavior) return uiBehavior;
+  if (requirement.intent === "route_detail") return buildDetailConsistencyExecution(requirement, caseId);
+  const runtimeCrud = buildRuntimeCrudExecution(requirement, caseId);
+  if (runtimeCrud) return runtimeCrud;
   const actionCandidate = selectedActions.map((item) => catalog.actions[item.actionTemplateId]).find(Boolean);
   if (!actionCandidate?.step) return { setup: [], steps: [], cleanup: [], oracleBindings: [] };
   const primary = JSON.parse(JSON.stringify(actionCandidate.step)) as TestStep;
@@ -137,6 +145,149 @@ function buildRequirementExecution(requirement: RequirementLike, caseId: string,
   return { setup, steps, cleanup, oracleBindings: hasCandidateOracle && semanticComplete ? oracleBindings : [] };
 }
 
+function buildRuntimeCrudExecution(requirement: RequirementLike, caseId: string): { setup: TestStep[]; steps: TestStep[]; cleanup: TestStep[]; oracleBindings: string[] } | undefined {
+  if (!["create_succeeds", "update_persists", "delete_removes_entity"].includes(requirement.intent)) return undefined;
+  const details = requirement.oracle?.details || {};
+  const collectionPath = stringDetail(details, "collection_path", requirement.fixture_strategy?.create?.path || "/");
+  const detailPath = stringDetail(details, "detail_path", requirement.fixture_strategy?.read?.path || collectionPath + "/:id");
+  const createPath = stringDetail(details, "create_path", requirement.fixture_strategy?.create?.path || collectionPath);
+  const updatePath = stringDetail(details, "update_path", requirement.fixture_strategy?.update?.path || detailPath);
+  const deletePath = stringDetail(details, "delete_path", requirement.fixture_strategy?.cleanup?.path || detailPath);
+  const safeId = safeRequirementId(requirement.requirement_id);
+  const seed = "runtime_seed_" + safeId;
+  const created = "runtime_created_" + safeId;
+  const refreshed = "runtime_refreshed_" + safeId;
+  const selected = "runtime_selected_" + safeId;
+  const steps: TestStep[] = [];
+  const cleanup: TestStep[] = [];
+  const discoveredPayload = usableRuntimePayload(requirement.fixture_strategy?.payload) ? requirement.fixture_strategy?.payload : undefined;
+  const cloneBody: Record<string, unknown> | string = discoveredPayload ? fixtureBody(requirement, "AutoPW generated", "normal") : `\${responses.${seed}.body.0}`;
+  const expectedStatus = typeof details.status === "number" ? Number(details.status) : requirement.intent === "create_succeeds" ? 201 : requirement.intent === "delete_removes_entity" ? 204 : 200;
+
+  steps.push({ action: "api_request", method: "GET", path: collectionPath, save_as: seed, acceptable_statuses: [200] });
+  if (requirement.intent === "create_succeeds") {
+    steps.push(
+      { action: "api_request", method: "POST", path: createPath, body: cloneBody, save_as: created, acceptable_statuses: [expectedStatus] },
+      { action: "api_request", method: "GET", path: collectionPath, save_as: refreshed, acceptable_statuses: [200] },
+      { action: "expect_collection", source: `responses.${refreshed}`, quantifier: "some", predicate: { path: "id", operator: "equals", value: `\${responses.${created}.body.id}` } }
+    );
+    cleanup.push({ action: "api_request", method: "DELETE", path: fillIdentityPath(deletePath, `\${responses.${created}.body.id}`), acceptable_statuses: [204, 404] });
+  } else if (requirement.intent === "update_persists") {
+    const updated = "runtime_updated_" + safeId;
+    if (discoveredPayload) steps.push({ action: "api_request", method: "POST", path: createPath, body: fixtureBody(requirement, "AutoPW fixture", "normal"), save_as: created, acceptable_statuses: [201] });
+    const identitySource = discoveredPayload ? created : seed;
+    const identityPath = discoveredPayload ? `\${responses.${identitySource}.body.id}` : `\${responses.${identitySource}.body.0.id}`;
+    steps.push(
+      { action: "api_request", method: requirement.fixture_strategy?.update?.method === "PUT" ? "PUT" : "PATCH", path: fillIdentityPath(updatePath, identityPath), body: discoveredPayload ? fixtureBody(requirement, "AutoPW updated", "normal") : cloneBody, save_as: updated, acceptable_statuses: [expectedStatus] },
+      { action: "api_request", method: "GET", path: collectionPath, save_as: refreshed, acceptable_statuses: [200] },
+      { action: "capture_json", source: `responses.${refreshed}`, path: `@id=\${responses.${updated}.body.id}`, save_as: selected },
+      { action: "expect_relation", left: { source: `responses.${updated}` }, operator: "equals", right: { source: `variables.${selected}` } }
+    );
+    if (discoveredPayload) cleanup.push({ action: "api_request", method: "DELETE", path: fillIdentityPath(deletePath, `\${responses.${created}.body.id}`), acceptable_statuses: [204, 404] });
+    else cleanup.push({ action: "api_request", method: requirement.fixture_strategy?.update?.method === "PUT" ? "PUT" : "PATCH", path: fillIdentityPath(updatePath, `\${responses.${seed}.body.0.id}`), body: cloneBody, acceptable_statuses: [200] });
+  } else {
+    steps.push(
+      { action: "api_request", method: "POST", path: createPath, body: cloneBody, save_as: created, acceptable_statuses: [201] },
+      { action: "api_request", method: "DELETE", path: fillIdentityPath(deletePath, `\${responses.${created}.body.id}`), save_as: "runtime_deleted_" + safeId, acceptable_statuses: [expectedStatus] },
+      { action: "api_request", method: "GET", path: fillIdentityPath(detailPath, `\${responses.${created}.body.id}`), save_as: refreshed, acceptable_statuses: [404] },
+      { action: "expect_status", source: `responses.${refreshed}`, equals: 404 }
+    );
+    cleanup.push({ action: "api_request", method: "GET", path: fillIdentityPath(detailPath, `\${responses.${created}.body.id}`), acceptable_statuses: [404] });
+  }
+  const oracleIndex = steps.findIndex((step) => step.action.startsWith("expect_"));
+  return { setup: [], steps, cleanup, oracleBindings: oracleIndex >= 0 ? [`${caseId}:step_${oracleIndex}`] : [] };
+}
+
+function buildUiBehaviorExecution(requirement: RequirementLike, caseId: string): { setup: TestStep[]; steps: TestStep[]; cleanup: TestStep[]; oracleBindings: string[] } | undefined {
+  if (!requirement.intent.startsWith("ui_")) return undefined;
+  const details = requirement.oracle?.details || {};
+  const route = stringDetail(details, "route", "/");
+  const collectionPath = stringDetail(details, "collection_path", "/");
+  const itemSelector = stringDetail(details, "item_selector");
+  if (!itemSelector) return { setup: [], steps: [], cleanup: [], oracleBindings: [] };
+  const setup: TestStep[] = [];
+  const steps: TestStep[] = [];
+  const cleanup: TestStep[] = [];
+  const listResponse = "ui_list_" + safeRequirementId(requirement.requirement_id);
+  const marker = "AutoPW-" + shortDigest(requirement.requirement_id).slice(0, 10);
+  const item = discoveredLocator(itemSelector);
+  const addOracle = (step: TestStep): void => { steps.push(step); };
+  if (requirement.intent === "ui_count_consistent") {
+    steps.push({ action: "api_request", method: "GET", path: collectionPath, save_as: listResponse, acceptable_statuses: [200] }, { action: "goto", path: route }, { action: "capture_count", locator: item, save_as: "rendered_count" }, { action: "capture_text", locator: discoveredLocator(stringDetail(details, "count_selector")), save_as: "displayed_count" });
+    addOracle({ action: "expect_relation", left: { source: "variables.rendered_count" }, operator: "equals", right: { source: `responses.${listResponse}`, aggregate: "length" } });
+    addOracle({ action: "expect_relation", left: { source: "variables.displayed_count", aggregate: "number" }, operator: "equals", right: { source: `responses.${listResponse}`, aggregate: "length" } });
+  } else if (requirement.intent === "ui_search_filters") {
+    const search = discoveredLocator(stringDetail(details, "search_selector"));
+    steps.push({ action: "api_request", method: "GET", path: collectionPath, save_as: listResponse, acceptable_statuses: [200] }, { action: "goto", path: route }, { action: "fill", locator: search, value: `\${responses.${listResponse}.body.0.title}` }, { action: "wait_for", timeout_ms: 150 }, { action: "capture_texts", locator: item, save_as: "search_texts" });
+    addOracle({ action: "expect_relation", left: { source: "variables.search_texts", aggregate: "length" }, operator: "greater_than", right: { literal: 0 } });
+    addOracle({ action: "expect_collection", source: "variables.search_texts", quantifier: "every", predicate: { path: "", operator: "contains", value: `\${responses.${listResponse}.body.0.title}` } });
+    steps.push({ action: "fill", locator: search, value: marker + "-missing" }, { action: "wait_for", timeout_ms: 100 }, { action: "capture_count", locator: item, save_as: "empty_search_count" });
+    addOracle({ action: "expect_relation", left: { source: "variables.empty_search_count" }, operator: "equals", right: { literal: 0 } });
+  } else if (requirement.intent === "ui_status_consistent") {
+    steps.push({ action: "api_request", method: "GET", path: collectionPath, save_as: listResponse, acceptable_statuses: [200] }, { action: "goto", path: route }, { action: "capture_texts", locator: discoveredLocator(stringDetail(details, "status_selector")), save_as: "rendered_statuses" });
+    if (Array.isArray(details.handled_values) && details.handled_values.length) addOracle({ action: "expect_collection", source: `responses.${listResponse}`, quantifier: "every", predicate: { path: stringDetail(details, "state_field", "status"), operator: "in", value: details.handled_values } });
+    addOracle({ action: "expect_relation", left: { source: `responses.${listResponse}`, path: "[].status" }, operator: "same_partition", right: { source: "variables.rendered_statuses" } });
+  } else if (requirement.intent === "ui_create_refreshes") {
+    steps.push({ action: "goto", path: route }, { action: "fill", locator: discoveredLocator(stringDetail(details, "primary_input_selector"), numberDetail(details, "primary_input_nth")), value: marker });
+    const secondary = stringDetail(details, "secondary_input_selector");
+    if (secondary) steps.push({ action: "fill", locator: discoveredLocator(secondary, numberDetail(details, "secondary_input_nth")), value: "AutoPW generated description" });
+    steps.push({ action: "click", locator: discoveredLocator(stringDetail(details, "submit_selector"), numberDetail(details, "submit_nth")) }, { action: "wait_for", timeout_ms: 150 });
+    addOracle({ action: "expect_visible", locator: discoveredLocator(itemSelector, undefined, marker) });
+    const cleanupList = "cleanup_created_list";
+    cleanup.push({ action: "api_request", method: "GET", path: collectionPath, save_as: cleanupList, acceptable_statuses: [200] }, { action: "capture_json", source: `responses.${cleanupList}`, path: `@title=${marker}.id`, save_as: "created_id" }, { action: "api_request", method: "DELETE", path: fillIdentityPath(stringDetail(details, "delete_path", collectionPath + "/:id"), "${variables.created_id}"), acceptable_statuses: [204] });
+  } else if (requirement.intent === "ui_toggle_refreshes") {
+    const status = discoveredLocator(stringDetail(details, "status_selector"), 0);
+    steps.push({ action: "api_request", method: "GET", path: collectionPath, save_as: listResponse, acceptable_statuses: [200] }, { action: "goto", path: route }, { action: "capture_text", locator: status, save_as: "status_before" }, { action: "click", locator: discoveredLocator(stringDetail(details, "toggle_selector"), 0, undefined, stringDetail(details, "toggle_scope_selector"), 0) }, { action: "wait_for", timeout_ms: 150 }, { action: "capture_text", locator: status, save_as: "status_after" });
+    addOracle({ action: "expect_relation", left: { source: "variables.status_after" }, operator: "not_equals", right: { source: "variables.status_before" } });
+    cleanup.push({ action: "api_request", method: (stringDetail(details, "update_path") ? "PATCH" : "PATCH"), path: fillIdentityPath(stringDetail(details, "update_path"), `\${responses.${listResponse}.body.0.id}`), acceptable_statuses: [200] });
+  } else if (requirement.intent === "ui_delete_removes") {
+    const fixtureResponse = "delete_fixture";
+    setup.push({ action: "api_request", method: "GET", path: collectionPath, save_as: listResponse, acceptable_statuses: [200] }, { action: "api_request", method: "POST", path: stringDetail(details, "create_path", collectionPath), body: `\${responses.${listResponse}.body.0}`, save_as: fixtureResponse, acceptable_statuses: [201] });
+    steps.push({ action: "goto", path: route }, { action: "capture_count", locator: item, save_as: "delete_count_before" }, { action: "click", locator: discoveredLocator(stringDetail(details, "delete_selector"), 0, undefined, stringDetail(details, "delete_scope_selector"), -1) }, { action: "wait_for", timeout_ms: 150 }, { action: "capture_count", locator: item, save_as: "delete_count_after" });
+    addOracle({ action: "expect_relation", left: { source: "variables.delete_count_after" }, operator: "less_than", right: { source: "variables.delete_count_before" } });
+    cleanup.push({ action: "api_request", method: "DELETE", path: fillIdentityPath(stringDetail(details, "delete_path"), `\${responses.${fixtureResponse}.body.id}`), acceptable_statuses: [204, 404] });
+  }
+  const oracleBindings = steps.map((step, index) => ({ step, index })).filter(({ step }) => step.action.startsWith("expect_")).map(({ index }) => `${caseId}:step_${setup.length + index}`);
+  return { setup, steps, cleanup, oracleBindings };
+}
+
+function buildDetailConsistencyExecution(requirement: RequirementLike, caseId: string): { setup: TestStep[]; steps: TestStep[]; cleanup: TestStep[]; oracleBindings: string[] } {
+  const details = requirement.oracle?.details || {};
+  const collectionPath = stringDetail(details, "collection_path", "/");
+  const detailPath = stringDetail(details, "detail_path", requirement.fixture_strategy?.read?.path || collectionPath + "/:id");
+  const listName = "detail_collection_" + safeRequirementId(requirement.requirement_id);
+  const detailName = "detail_response_" + safeRequirementId(requirement.requirement_id);
+  const setup: TestStep[] = [];
+  const cleanup: TestStep[] = [];
+  const fixtureName = "detail_fixture_" + safeRequirementId(requirement.requirement_id);
+  const selectedName = "detail_selected_" + safeRequirementId(requirement.requirement_id);
+  const payload = usableRuntimePayload(requirement.fixture_strategy?.payload) ? requirement.fixture_strategy?.payload : undefined;
+  if (payload && requirement.fixture_strategy?.create?.path) setup.push({ action: "api_request", method: "POST", path: requirement.fixture_strategy.create.path, body: fixtureBody(requirement, "AutoPW detail", "normal"), save_as: fixtureName, acceptable_statuses: [201] });
+  const selectedIdentity = payload ? `\${responses.${fixtureName}.body.id}` : `\${responses.${listName}.body.1.id}`;
+  const steps: TestStep[] = [{ action: "api_request", method: "GET", path: collectionPath, save_as: listName, acceptable_statuses: [200] }];
+  if (payload) steps.push({ action: "capture_json", source: `responses.${listName}`, path: `@id=${selectedIdentity}`, save_as: selectedName });
+  steps.push(
+    { action: "api_request", method: "GET", path: fillIdentityPath(detailPath, selectedIdentity), save_as: detailName, acceptable_statuses: [200] },
+    { action: "expect_relation", left: { source: `responses.${detailName}` }, operator: "equals", right: payload ? { source: `variables.${selectedName}` } : { source: `responses.${listName}`, path: "[1]" } }
+  );
+  if (payload && requirement.fixture_strategy?.cleanup?.path) cleanup.push({ action: "api_request", method: "DELETE", path: fillIdentityPath(requirement.fixture_strategy.cleanup.path, `\${responses.${fixtureName}.body.id}`), acceptable_statuses: [204, 404] });
+  const oracleIndex = setup.length + steps.findIndex((step) => step.action === "expect_relation");
+  return { setup, steps, cleanup, oracleBindings: [`${caseId}:step_${oracleIndex}`] };
+}
+
+function discoveredLocator(selector: string, nth?: number, hasText?: string, withinSelector?: string, withinNth?: number): import("@autopw/test-plan").LocatorRef {
+  return { by: "css", value: selector, authority: "discovered_dom", ...(nth !== undefined ? { nth } : {}), ...(hasText !== undefined ? { has_text: hasText } : {}), ...(withinSelector ? { within: { by: "css", value: withinSelector, authority: "discovered_dom", ...(withinNth !== undefined ? { nth: withinNth } : {}) } } : {}) };
+}
+function usableRuntimePayload(payload: Record<string, unknown> | undefined): boolean {
+  if (!payload) return false;
+  const metadata = /^(?:id|.*_id|.*Id|priority|status|state|type|kind|createdAt|updatedAt)$/i;
+  return Object.entries(payload).some(([key, value]) => !metadata.test(key) && (typeof value === "string" ? value.trim().length > 0 : typeof value === "number" || typeof value === "boolean"));
+}
+function stringDetail(details: Record<string, unknown>, name: string, fallback = ""): string { return typeof details[name] === "string" ? String(details[name]) : fallback; }
+function numberDetail(details: Record<string, unknown>, name: string): number | undefined { return typeof details[name] === "number" ? Number(details[name]) : undefined; }
+function fillIdentityPath(value: string, identity: string): string { return value.replace(/:[A-Za-z0-9_]+/, identity); }
+function safeRequirementId(value: string): string { return value.replace(/[^A-Za-z0-9_.:-]+/g, "_"); }
+
 function collectionPathFor(requirement: RequirementLike, primary: Extract<TestStep, { action: "api_request" }>): string {
   const fixtureCreate = requirement.fixture_strategy?.create?.path;
   if (fixtureCreate) return String(fixtureCreate).split("?")[0] || "/";
@@ -160,6 +311,7 @@ function tierForRequirement(requirement: RequirementLike): "smoke" | "fast" | "f
   if (requirement.priority === "P1") return "fast";
   return ["invalid_input", "empty_state", "boundary"].includes(requirement.scenario) ? "fast" : "smoke";
 }
+const UI_ACTIONS = new Set<TestStep["action"]>(["goto", "reload", "fill", "click", "select", "check", "uncheck", "press", "wait_for"]);
 function priorityForFeature(catalog: CandidateCatalog, featureId: string): string {
   for (const action of Object.values(catalog.actions)) {
     if (action.feature_id !== featureId || !action.step || typeof action.step.body !== "object" || action.step.body === null) continue;

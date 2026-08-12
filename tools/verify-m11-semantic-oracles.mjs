@@ -36,7 +36,7 @@ check("m11.5-compiler-writes-1.1-only-for-semantic-oracles", compiled.plan.plan_
 check("m11.5-complete-semantic-oracle-earns-coverage", compiled.plan.coverage_eligible && compiled.mappingAudit.match === "COMPLETE" && compiled.mappingAudit.requirement_oracle_map.req_count?.some((ref) => ref.includes("step_")));
 const semanticFixtures = { kind: "resource_crud", proven: true, payload: { name: "AutoPW" }, create: { operation_id: "create", method: "POST", path: "/items" }, read: { operation_id: "read", method: "GET", path: "/items/:itemId" }, update: { operation_id: "update", method: "PATCH", path: "/items/:itemId" }, cleanup: { operation_id: "delete", method: "DELETE", path: "/items/:itemId" }, identity: { kind: "response_body", path: "id", proven: true } };
 const semanticCases = [
-  ["create_succeeds", "POST", "/items", "expect_relation"],
+  ["create_succeeds", "POST", "/items", "expect_collection"],
   ["update_persists", "PATCH", "/items/item-1", "expect_relation"],
   ["summary_is_consistent", "GET", "/items/summary", "expect_relation"],
   ["count_consistent", "GET", "/count", "expect_relation"],

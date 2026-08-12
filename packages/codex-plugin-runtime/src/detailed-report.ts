@@ -32,6 +32,8 @@ export function exportDetailedReport(options: DetailedReportOptions): Record<str
 
   const issues = arrayOf(results.issues);
   const coverage = readJson(path.join(runRoot, "requirement-coverage.json"));
+  const completionAudit = readJson(path.join(runRoot, "completion-audit.json"));
+  const mappingAudit = readJson(path.join(runRoot, "mapping-audit.json"));
   const discovery = readJson(path.join(runRoot, "discovery.json"));
   const derivation = readJson(path.join(runRoot, "derivation.json"));
   const artifactIndex = readJson(path.join(runRoot, "artifact-index.json"));
@@ -71,6 +73,8 @@ export function exportDetailedReport(options: DetailedReportOptions): Record<str
     audit_status: String(results.audit_status || "unknown"),
     summary: isRecord(results.summary) ? results.summary : {},
     coverage: coverage || null,
+    completion_audit: completionAudit || null,
+    mapping_audit: mappingAudit || null,
     records,
     note: "本报告由 AutoPW 运行证据生成；可能原因是基于失败信号的精简候选，需结合源码复核。",
   };
@@ -212,17 +216,37 @@ function renderMarkdown(model: Json & { records: ReportRecord[] }): string {
     const evidence = record.evidence.map((item) => `- [${md(item.kind + " / " + path.basename(item.relative_path))}](playwright-report/${encodeLink(item.relative_path)}) · \`${item.sha256.slice(0, 12)}\``).join("\n") || "- 无可导出的证据文件。";
     return `## ${index + 1}. ${md(record.plan.title || record.plan.case_id)}\n\n- 用例：\`${md(record.plan.case_id)}\`\n- 执行：\`${md(result?.execution_id || "未执行")}\`\n- 状态：**${md(result?.status || "NOT_RUN")}**\n- 分类：${md(String(issue?.classification || result?.classification || "无"))}\n- 需求：${md((record.plan.requirement_refs || []).join(", ") || "未关联")}\n\n### 具体操作流程\n\n| # | 阶段 | 操作 | 目标 | 预期 | 实际 | 状态 | 耗时(ms) |\n|---:|---|---|---|---|---|---|---:|\n${flow}\n\n### 可能原因（精简）\n\n${record.causes.map((cause) => "- " + md(cause)).join("\n")}\n\n### 具体代码位置\n\n${locations}\n\n### Playwright 证据\n\n${evidence}`;
   }).join("\n\n");
-  return `# AutoPW 正式中文审查报告\n\n- 运行：\`${md(String(model.run_id))}\`\n- 目标：${md(String(model.target_origin))}\n- Gate：**${md(String(model.gate))}**\n- 审计状态：**${md(String(model.audit_status))}**\n- 生成时间：${md(String(model.generated_at))}\n- 汇总：${Number(summary.total_cases || model.records.length)} 个用例 / ${Number(summary.passed || 0)} 通过 / ${Number(summary.failed || 0)} 失败 / ${Number(summary.blocked || 0)} 阻塞\n- Playwright 证据报告：[打开 index.html](playwright-report/index.html)\n\n> 本报告由 AutoPW 自身的测试计划、实际执行路径和证据生成，不调用 cr-agent。可能原因仅保留高概率候选，仍需结合源码与 trace 复核。\n\n${sections}\n`;
+  const incomplete = String(model.gate) === "incomplete" || String(model.audit_status) === "INCOMPLETE" ? "\n> **整体审计不完整，不得将已执行子集通过解读为项目通过。**\n" : "";
+  return `# AutoPW 正式中文审查报告\n\n- 运行：\`${md(String(model.run_id))}\`\n- 目标：${md(String(model.target_origin))}\n- Gate：**${md(String(model.gate))}**\n- 审计状态：**${md(String(model.audit_status))}**\n- 生成时间：${md(String(model.generated_at))}\n- 汇总：${Number(summary.total_cases || model.records.length)} 个用例 / ${Number(summary.passed || 0)} 通过 / ${Number(summary.failed || 0)} 失败 / ${Number(summary.blocked || 0)} 阻塞\n- Playwright 证据索引：[打开 index.html](playwright-report/index.html)\n${incomplete}\n${auditOverviewMarkdown(model)}\n\n> 本报告只使用 AutoPW 自动发现并生成的测试计划、实际执行路径和证据；不读取项目测试套件的断言或结论。可能原因仅保留高概率候选，仍需结合源码与 trace 复核。\n\n${sections}\n`;
 }
 
 function renderHtml(model: Json & { records: ReportRecord[] }): string {
   const sections = model.records.map((record, index) => `<section><h2>${index + 1}. ${html(record.plan.title || record.plan.case_id)}</h2><div class="meta"><span>${html(record.plan.case_id)}</span><span class="status ${html(String(record.result?.status || "NOT_RUN").toLowerCase())}">${html(String(record.result?.status || "NOT_RUN"))}</span><span>${html(String(record.issue?.classification || record.result?.classification || "无分类"))}</span></div><h3>具体操作流程</h3>${flowTable(record.flow)}<h3>可能原因（精简）</h3><ul>${record.causes.map((cause) => `<li>${html(cause)}</li>`).join("")}</ul><h3>具体代码位置</h3><ul>${record.locations.length ? record.locations.map((location) => `<li><code>${html(location.path + (location.line ? ":" + location.line : ""))}</code>（${location.confidence}）${html(location.reason)}</li>`).join("") : "<li>未定位到可信源码位置；请从操作目标和 trace 继续复核。</li>"}</ul><h3>Playwright 证据</h3><ul>${record.evidence.length ? record.evidence.map((item) => `<li><a href="playwright-report/${html(encodeLink(item.relative_path))}">${html(item.kind + " / " + path.basename(item.relative_path))}</a></li>`).join("") : "<li>无可导出的证据文件。</li>"}</ul></section>`).join("");
-  return page("AutoPW 正式中文审查报告", `<header><p class="eyebrow">AUTOPW REVIEW</p><h1>正式中文审查报告</h1><div class="meta"><span>Run ${html(String(model.run_id))}</span><span>Gate ${html(String(model.gate))}</span><span>Audit ${html(String(model.audit_status))}</span></div><p>报告基于实际操作路径和 Playwright 证据生成，不调用 cr-agent。<a href="playwright-report/index.html">打开 Playwright 证据报告</a></p></header>${sections}`);
+  const warning = String(model.gate) === "incomplete" || String(model.audit_status) === "INCOMPLETE" ? `<section><h2>总体结论</h2><p><strong>整体审计不完整，不得将已执行子集通过解读为项目通过。</strong></p></section>` : "";
+  return page("AutoPW 正式中文审查报告", `<header><p class="eyebrow">AUTOPW REVIEW</p><h1>正式中文审查报告</h1><div class="meta"><span>Run ${html(String(model.run_id))}</span><span>Gate ${html(String(model.gate))}</span><span>Audit ${html(String(model.audit_status))}</span></div><p>报告只使用 AutoPW 自动发现并生成的测试计划、实际操作路径和 Playwright 证据。<a href="playwright-report/index.html">打开 Playwright 证据索引</a></p></header>${warning}${auditOverviewHtml(model)}${sections}`);
 }
 
 function renderPlaywrightIndex(model: Json & { records: ReportRecord[] }): string {
   const sections = model.records.map((record) => `<section><h2>${html(record.plan.title || record.plan.case_id)}</h2><div class="meta"><span>${html(record.plan.case_id)}</span><span>${html(String(record.result?.browser || "browser unknown"))}</span><span class="status ${html(String(record.result?.status || "NOT_RUN").toLowerCase())}">${html(String(record.result?.status || "NOT_RUN"))}</span></div>${flowTable(record.flow)}<h3>运行附件</h3><ul>${record.evidence.length ? record.evidence.map((item) => `<li><a href="${html(encodeLink(item.relative_path))}">${html(item.kind + " / " + path.basename(item.relative_path))}</a><small> ${html(item.sha256.slice(0, 12))}</small></li>`).join("") : "<li>无附件</li>"}</ul></section>`).join("");
-  return page("AutoPW Playwright 证据报告", `<header><p class="eyebrow">PLAYWRIGHT EVIDENCE</p><h1>AutoPW Playwright 证据报告</h1><p>这里集中保存 Playwright 执行路径、trace、截图、控制台和接口响应。trace.zip 可用 <code>npx playwright show-trace &lt;path&gt;</code> 打开。</p><p><a href="../report.html">返回中文审查报告</a></p></header>${sections}`);
+  return page("AutoPW Playwright 执行报告", `<header><p class="eyebrow">PLAYWRIGHT EVIDENCE</p><h1>AutoPW Playwright 执行报告</h1><p>这里集中展示 AutoPW 自动生成用例的执行路径、trace、截图、控制台和接口响应。trace.zip 可用 <code>npx playwright show-trace &lt;path&gt;</code> 打开。</p><p><a href="../report.html">返回中文审查报告</a></p></header>${sections}`);
+}
+
+function auditOverviewMarkdown(model: Json): string {
+  const audit = isRecord(model.completion_audit) ? model.completion_audit : {};
+  const coverage = isRecord(audit.coverage) ? audit.coverage : isRecord(model.coverage) ? model.coverage : {};
+  const metrics = isRecord(audit.coverage_metrics) ? audit.coverage_metrics : {};
+  const mapping = isRecord(model.mapping_audit) ? model.mapping_audit : {};
+  const unmapped = arrayOf(mapping.unmapped_requirements).filter(isRecord);
+  const rows = unmapped.map((item) => `| ${md(String(item.requirement_id || "-"))} | ${md(String(item.reason || "-"))} |`).join("\n") || "| - | 无 |";
+  return `## 覆盖与不完整原因\n\n| 指标 | 值 |\n|---|---:|\n| 本 Tier 要求 | ${Number(coverage.required || 0)} |\n| 已计划 | ${Number(coverage.planned || 0)} |\n| 已执行 | ${Number(coverage.executed || 0)} |\n| 已通过 | ${Number(coverage.passed || 0)} |\n| 已发现范围覆盖 | ${Number(metrics.discovered_scope_coverage_pct || 0)}% |\n| 语义 Oracle 覆盖 | ${Number(metrics.semantic_oracle_coverage_pct || 0)}% |\n\n| 未映射需求 | 原因 |\n|---|---|\n${rows}`;
+}
+function auditOverviewHtml(model: Json): string {
+  const audit = isRecord(model.completion_audit) ? model.completion_audit : {};
+  const coverage = isRecord(audit.coverage) ? audit.coverage : isRecord(model.coverage) ? model.coverage : {};
+  const metrics = isRecord(audit.coverage_metrics) ? audit.coverage_metrics : {};
+  const mapping = isRecord(model.mapping_audit) ? model.mapping_audit : {};
+  const unmapped = arrayOf(mapping.unmapped_requirements).filter(isRecord);
+  return `<section><h2>覆盖与不完整原因</h2><div class="table"><table><tbody><tr><th>本 Tier 要求</th><td>${Number(coverage.required || 0)}</td></tr><tr><th>已计划</th><td>${Number(coverage.planned || 0)}</td></tr><tr><th>已执行</th><td>${Number(coverage.executed || 0)}</td></tr><tr><th>已通过</th><td>${Number(coverage.passed || 0)}</td></tr><tr><th>已发现范围覆盖</th><td>${Number(metrics.discovered_scope_coverage_pct || 0)}%</td></tr><tr><th>语义 Oracle 覆盖</th><td>${Number(metrics.semantic_oracle_coverage_pct || 0)}%</td></tr></tbody></table></div><h3>未映射需求</h3><ul>${unmapped.length ? unmapped.map((item) => `<li><code>${html(String(item.requirement_id || "-"))}</code>：${html(String(item.reason || "-"))}</li>`).join("") : "<li>无</li>"}</ul></section>`;
 }
 
 function flowTable(flow: Array<Record<string, unknown>>): string { return `<div class="table"><table><thead><tr><th>#</th><th>阶段</th><th>操作</th><th>目标</th><th>预期</th><th>实际</th><th>状态</th><th>ms</th></tr></thead><tbody>${flow.map((step) => `<tr><td>${step.sequence}</td><td>${html(String(step.phase))}</td><td><code>${html(String(step.operation))}</code></td><td>${html(String(step.target || "-"))}</td><td>${html(String(step.expected || "-"))}</td><td>${html(String(step.actual || "-"))}</td><td>${html(String(step.status))}</td><td>${step.duration_ms}</td></tr>`).join("")}</tbody></table></div>`; }

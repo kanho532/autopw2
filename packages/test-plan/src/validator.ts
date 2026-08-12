@@ -21,7 +21,8 @@ const ACTION_KEYS: Record<string, string[]> = {
   expect_json: ["action", "source", "path", "equals", "exists"], expect_json_schema: ["action", "source", "schema"],
   expect_relation: ["action", "left", "operator", "right"], expect_collection: ["action", "source", "path", "quantifier", "predicate"],
   set_variable: ["action", "name", "value"], capture_text: ["action", "locator", "save_as"],
-  capture_attribute: ["action", "locator", "attribute", "save_as"], capture_json: ["action", "source", "path", "save_as"]
+  capture_attribute: ["action", "locator", "attribute", "save_as"], capture_json: ["action", "source", "path", "save_as"],
+  capture_count: ["action", "locator", "save_as"], capture_texts: ["action", "locator", "save_as"]
 };
 export interface PlanValidationContext {
   authority: "generated" | "trusted_manual" | "migrated_fixture" | "untrusted";
@@ -121,7 +122,7 @@ function validateSteps(steps: TestStep[], phase: string, errors: string[], prefi
     }
     if (action === "set_variable" && validVariableName(rawStep.name)) bindings.variables.add(rawStep.name);
     if (action === "api_request" && validVariableName(rawStep.save_as)) bindings.responses.add(rawStep.save_as);
-    if (["capture_text", "capture_attribute", "capture_json"].includes(action) && validVariableName(rawStep.save_as)) bindings.variables.add(rawStep.save_as);
+    if (["capture_text", "capture_attribute", "capture_json", "capture_count", "capture_texts"].includes(action) && validVariableName(rawStep.save_as)) bindings.variables.add(rawStep.save_as);
   }
 }
 
@@ -130,7 +131,7 @@ function validateActionShape(action: string, step: Record<string, unknown>, erro
     if (step[key] === undefined || typeof step[key] !== type || (nonEmpty && type === "string" && !step[key])) errors.push(prefix + ": " + action + "." + key + " is required");
   };
   if (["goto", "expect_url"].includes(action)) { required("path"); validateRelativePath(String(step.path || ""), prefix, errors); }
-  if (["click", "fill", "press", "select", "check", "uncheck", "expect_visible", "expect_hidden", "expect_text", "expect_value", "expect_count", "expect_checked", "capture_text", "capture_attribute"].includes(action)) { if (step.locator === undefined) errors.push(prefix + ": " + action + ".locator is required"); else validateLocator(step.locator, errors, prefix, context); }
+  if (["click", "fill", "press", "select", "check", "uncheck", "expect_visible", "expect_hidden", "expect_text", "expect_value", "expect_count", "expect_checked", "capture_text", "capture_attribute", "capture_count", "capture_texts"].includes(action)) { if (step.locator === undefined) errors.push(prefix + ": " + action + ".locator is required"); else validateLocator(step.locator, errors, prefix, context); }
   if (action === "fill" || action === "select") required("value", "string", false);
   if (action === "press") required("key");
   if (action === "wait_for") { if (step.locator !== undefined) validateLocator(step.locator, errors, prefix, context); if (step.state !== undefined && !["visible", "hidden", "attached"].includes(String(step.state))) errors.push(prefix + ": invalid wait state"); if (step.timeout_ms !== undefined && (!Number.isInteger(step.timeout_ms) || Number(step.timeout_ms) < 1)) errors.push(prefix + ": invalid wait timeout"); }
@@ -143,10 +144,10 @@ function validateActionShape(action: string, step: Record<string, unknown>, erro
   if (action === "expect_header") { required("source"); required("name"); if ((step.equals === undefined) === (step.contains === undefined) || (step.equals !== undefined && typeof step.equals !== "string") || (step.contains !== undefined && typeof step.contains !== "string")) errors.push(prefix + ": expect_header requires exactly one string oracle"); }
   if (action === "expect_json") { required("source"); required("path"); if (step.equals === undefined && typeof step.exists !== "boolean") errors.push(prefix + ": expect_json requires equals or exists"); if (step.equals !== undefined && step.exists !== undefined) errors.push(prefix + ": expect_json cannot combine equals and exists"); }
   if (action === "expect_json_schema") { required("source"); if (!isObject(step.schema) && !Array.isArray(step.schema)) errors.push(prefix + ": expect_json_schema.schema is required"); }
-  if (action === "expect_relation") { if (!isSemanticOperand(step.left) || !isSemanticOperand(step.right)) errors.push(prefix + ": expect_relation operands are invalid"); if (!["equals", "not_equals", "greater_than", "greater_or_equal", "less_than", "less_or_equal"].includes(String(step.operator))) errors.push(prefix + ": expect_relation.operator is invalid"); }
+  if (action === "expect_relation") { if (!isSemanticOperand(step.left) || !isSemanticOperand(step.right)) errors.push(prefix + ": expect_relation operands are invalid"); if (!["equals", "not_equals", "greater_than", "greater_or_equal", "less_than", "less_or_equal", "same_partition"].includes(String(step.operator))) errors.push(prefix + ": expect_relation.operator is invalid"); }
   if (action === "expect_collection") { required("source"); if (step.path !== undefined && typeof step.path !== "string") errors.push(prefix + ": expect_collection.path must be a string"); if (!["every", "some", "none"].includes(String(step.quantifier))) errors.push(prefix + ": expect_collection.quantifier is invalid"); if (!isCollectionPredicate(step.predicate)) errors.push(prefix + ": expect_collection.predicate is invalid"); }
   if (action === "set_variable") { required("name"); if (!validVariableName(step.name)) errors.push(prefix + ": invalid variable name"); if (step.value === undefined) errors.push(prefix + ": set_variable.value is required"); }
-  if (["capture_text", "capture_attribute"].includes(action)) { required("save_as"); if (!validVariableName(step.save_as)) errors.push(prefix + ": invalid capture variable"); if (action === "capture_attribute") required("attribute"); }
+  if (["capture_text", "capture_attribute", "capture_count", "capture_texts"].includes(action)) { required("save_as"); if (!validVariableName(step.save_as)) errors.push(prefix + ": invalid capture variable"); if (action === "capture_attribute") required("attribute"); }
   if (action === "capture_json") { required("source"); required("save_as"); if (!validVariableName(step.save_as)) errors.push(prefix + ": invalid capture variable"); if (step.path !== undefined && typeof step.path !== "string") errors.push(prefix + ": capture_json.path must be a string"); }
 }
 
@@ -154,14 +155,15 @@ function isSemanticOperand(value: unknown): boolean {
   if (!isObject(value)) return false;
   if (Object.hasOwn(value, "literal")) return onlyKeys(value, ["literal"]);
   if (Array.isArray(value.sum)) return onlyKeys(value, ["sum"]) && value.sum.length > 0 && value.sum.every(isSemanticOperand);
-  return typeof value.source === "string" && Boolean(value.source) && onlyKeys(value, ["source", "path", "aggregate"]) && (value.path === undefined || typeof value.path === "string") && (value.aggregate === undefined || ["length", "sum"].includes(String(value.aggregate)));
+  return typeof value.source === "string" && Boolean(value.source) && onlyKeys(value, ["source", "path", "aggregate"]) && (value.path === undefined || typeof value.path === "string") && (value.aggregate === undefined || ["length", "sum", "number"].includes(String(value.aggregate)));
 }
-function isCollectionPredicate(value: unknown): boolean { return isObject(value) && typeof value.path === "string" && ["equals", "contains", "exists"].includes(String(value.operator)) && onlyKeys(value, ["path", "operator", "value"]) && (value.operator === "exists" || Object.hasOwn(value, "value")); }
+function isCollectionPredicate(value: unknown): boolean { return isObject(value) && typeof value.path === "string" && ["equals", "contains", "exists", "in"].includes(String(value.operator)) && onlyKeys(value, ["path", "operator", "value"]) && (value.operator === "exists" || Object.hasOwn(value, "value")); }
 
 function validateLocator(locator: unknown, errors: string[], prefix: string, context: PlanValidationContext): void {
   if (!isObject(locator) || typeof locator.by !== "string") { errors.push(prefix + ": locator is invalid"); return; }
   const allowed = locator.by === "role" ? ["by", "role", "name", "exact"] : locator.by === "label" || locator.by === "text" ? ["by", "text", "exact"] : ["by", "value"];
   if (locator.by === "css") allowed.push("authority");
+  allowed.push("nth", "has_text", "within");
   if (!onlyKeys(locator, allowed)) errors.push(prefix + ": locator has unknown fields");
   if (locator.by === "role" && locator.name !== undefined && typeof locator.name !== "string") errors.push(prefix + ": locator.name must be a string");
   if ((locator.by === "role" || locator.by === "label" || locator.by === "text") && locator.exact !== undefined && typeof locator.exact !== "boolean") errors.push(prefix + ": locator.exact must be a boolean");
@@ -169,10 +171,14 @@ function validateLocator(locator: unknown, errors: string[], prefix: string, con
     const value = locator.by === "role" ? locator.role : locator.by === "label" || locator.by === "text" ? locator.text : locator.value;
     if (typeof value !== "string" || !value) errors.push(prefix + ": locator value is required");
   } else if (locator.by === "css") {
-    if (locator.authority !== "trusted_manual" || typeof locator.value !== "string" || !locator.value) errors.push(prefix + ": automatic CSS locator is not allowed");
+    if (!["trusted_manual", "discovered_dom"].includes(String(locator.authority)) || typeof locator.value !== "string" || !/^[A-Za-z0-9_.#>+~,:*\[\]=\"'()\s-]+$/.test(locator.value)) errors.push(prefix + ": CSS locator is invalid");
   } else errors.push(prefix + ": CSS/XPath or unknown locator is not allowed");
+  if (locator.nth !== undefined && (!Number.isInteger(locator.nth) || Number(locator.nth) < -1)) errors.push(prefix + ": locator.nth is invalid");
+  if (locator.has_text !== undefined && typeof locator.has_text !== "string") errors.push(prefix + ": locator.has_text must be a string");
+  if (locator.within !== undefined) validateLocator(locator.within, errors, prefix + ".within", context);
   if (JSON.stringify(locator).match(HTTP_PATTERN)) errors.push(prefix + ": locator contains an unsafe URL");
-  if (locator.by === "css" && !["trusted_manual", "migrated_fixture"].includes(context.authority)) errors.push(prefix + ": CSS locator requires trusted validation authority");
+  if (locator.by === "css" && locator.authority === "trusted_manual" && !["trusted_manual", "migrated_fixture"].includes(context.authority)) errors.push(prefix + ": CSS locator requires trusted validation authority");
+  if (locator.by === "css" && locator.authority === "discovered_dom" && context.authority !== "generated") errors.push(prefix + ": discovered DOM locator requires generated authority");
 }
 
 function validateRelativePath(value: string, prefix: string, errors: string[]): void { if (!isSafeRelativePath(value)) errors.push(prefix + ": unsafe URL/path"); }

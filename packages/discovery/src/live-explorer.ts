@@ -10,6 +10,7 @@ export interface LiveExplorationResult { observations: Record<string, unknown>[]
 interface Closable { close(): Promise<void>; }
 interface LiveResources { browser?: Closable; context?: Closable; page?: Closable; }
 interface ControlSnapshot { index: number; tag: string; id?: string; role?: string; name?: string; href?: string; type?: string; disabled: boolean; }
+interface StructureSnapshot { semantic: string; selector: string; nth?: number; scope_selector?: string; }
 
 export async function exploreLiveTarget({ targetUrl, budget, allowedOrigins, discoveredRoutes, deadline, signal, policy = {}, registerResources }: { targetUrl: string; budget: LiveExplorationBudget; allowedOrigins: string[]; discoveredRoutes: Set<string>; deadline: number; signal: AbortSignal; policy?: LiveExplorationPolicy; registerResources(resources: LiveResources): void }): Promise<LiveExplorationResult> {
   assertBudget(signal, deadline);
@@ -86,6 +87,7 @@ export async function exploreLiveTarget({ targetUrl, budget, allowedOrigins, dis
         facts.push(controlFact); controlFacts.set(control.index, controlFact);
         candidates.push({ id: "candidate_" + controlFact.fact_id, kind: "control", route, feature_id: String(controlFact.feature_id), locator: typeof controlFact.locator === "string" ? controlFact.locator : undefined, fact_id: controlFact.fact_id, source_untrusted: true });
       }
+      for (const structure of await structureSnapshots(page)) facts.push(fact("ui_structure", [route, structure.semantic, structure.selector, structure.nth ?? "", structure.scope_selector || ""].join("|"), { route, feature_id: "live.ui", semantic: structure.semantic, selector: structure.selector, ...(structure.nth !== undefined ? { nth: structure.nth } : {}), ...(structure.scope_selector ? { scope_selector: structure.scope_selector } : {}), source_kind: "DOM", confidence: 0.96, source_ref: { path: "<live>", line: 1 } }));
       let interactions = 0;
       for (const control of controls) {
         if (interactions >= budget.max_interactions_per_route || control.disabled) break;
@@ -117,6 +119,53 @@ export async function exploreLiveTarget({ targetUrl, budget, allowedOrigins, dis
 }
 
 async function snapshots(page: Page, limit: number): Promise<ControlSnapshot[]> { return page.locator("button,input,select,textarea,a").evaluateAll((nodes, max) => nodes.slice(0, Number(max)).map((node, index) => ({ index, tag: node.nodeName.toLowerCase(), id: node.getAttribute("id") || undefined, role: node.getAttribute("role") || undefined, name: node.getAttribute("aria-label") || (node.textContent || "").trim().slice(0, 100) || node.getAttribute("name") || undefined, href: node.getAttribute("href") || undefined, type: node.getAttribute("type") || undefined, disabled: Boolean((node as unknown as { disabled?: boolean }).disabled) || node.hasAttribute("disabled") })), limit); }
+async function structureSnapshots(page: Page): Promise<StructureSnapshot[]> {
+  return page.locator("body").evaluate((body) => {
+    const document = body.ownerDocument;
+    const output: StructureSnapshot[] = [];
+    const safeClass = (element: any, pattern?: RegExp): string | undefined => {
+      if (!element) return undefined;
+      const tokens = [...element.classList].filter((token) => /^[A-Za-z_][A-Za-z0-9_-]*$/.test(token));
+      const token = pattern ? tokens.find((item) => pattern.test(item)) : tokens[0];
+      return token ? "." + token : undefined;
+    };
+    const add = (semantic: string, selector: string | undefined, nth?: number, scopeSelector?: string): void => {
+      if (!selector || output.some((item) => item.semantic === semantic)) return;
+      output.push({ semantic, selector, ...(nth !== undefined ? { nth } : {}), ...(scopeSelector ? { scope_selector: scopeSelector } : {}) });
+    };
+    const repeated = [...document.querySelectorAll("li,[role=listitem],tbody>tr")].find((element) => {
+      const selector = safeClass(element);
+      return selector ? document.querySelectorAll(selector).length >= 2 : false;
+    });
+    const itemSelector = safeClass(repeated, /item|row|card|entry|record/i) || safeClass(repeated);
+    add("collection_item", itemSelector);
+    const all = [...document.querySelectorAll("*")];
+    add("displayed_count", safeClass(all.find((element) => /count|total/i.test(element.className || "")), /count|total/i));
+    add("item_status", itemSelector && safeClass(repeated?.querySelector("[class*=status],[class*=state]"), /status|state/i) ? itemSelector + " " + safeClass(repeated?.querySelector("[class*=status],[class*=state]"), /status|state/i) : undefined);
+    add("search_input", safeClass(document.querySelector("input[type=search],input[class*=search]"), /search/i));
+    const formRoot = all.find((element) => element.querySelectorAll("input,textarea").length >= 1 && element.querySelector("button") && /form|create|new|add/i.test(element.className || ""));
+    const formSelector = safeClass(formRoot, /form|create|new|add/i);
+    if (formSelector) {
+      const textInputs = [...formRoot!.querySelectorAll("input,textarea")];
+      textInputs.forEach((_element, index) => add(index === 0 ? "create_primary_input" : index === 1 ? "create_secondary_input" : `create_input_${index}`, formSelector + " input," + formSelector + " textarea", index));
+      if (formRoot!.querySelector("select")) add("create_select", formSelector + " select", 0);
+      const submit = formRoot!.querySelector("button");
+      add("create_submit", safeClass(submit, /primary|submit|create|add/i) ? formSelector + " " + safeClass(submit, /primary|submit|create|add/i) : formSelector + " button", 0);
+    }
+    if (itemSelector) {
+      const firstItem = document.querySelector(itemSelector);
+      const buttons = [...(firstItem?.querySelectorAll("button") || [])];
+      for (const button of buttons) {
+        const text = `${button.className || ""} ${button.textContent || ""}`;
+        const selector = safeClass(button);
+        if (/delete|remove|danger/i.test(text)) add("delete_action", selector, undefined, itemSelector);
+        else if (/toggle|complete|status|done/i.test(text)) add("toggle_action", selector, undefined, itemSelector);
+        else if (/detail|title|open|view/i.test(text)) add("detail_action", selector, undefined, itemSelector);
+      }
+    }
+    return output;
+  });
+}
 async function fingerprint(page: Page, route: string): Promise<{ key: string; hash: string; text: string }> { const state = await page.locator("body").evaluate((body) => ({ text: (body.innerText || "").replace(/\s+/g, " ").trim().slice(0, 4000), structure: [...body.querySelectorAll("a,button,input,select,textarea,[role]")].map((node) => [node.nodeName, node.getAttribute("id"), node.getAttribute("role"), node.getAttribute("aria-expanded"), node.getAttribute("aria-selected")]) })); const hash = crypto.createHash("sha256").update(JSON.stringify(state)).digest("hex"); return { key: route + "|" + hash, hash, text: state.text }; }
 async function settle(page: Page, deadline: number): Promise<void> { await page.waitForTimeout(Math.min(75, Math.max(1, remaining(deadline) - 1))); }
 function isInteractive(control: ControlSnapshot): boolean { return control.tag === "a" || control.tag === "button" || control.type === "button" || control.type === "checkbox" || control.type === "radio"; }

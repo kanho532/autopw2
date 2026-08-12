@@ -57,6 +57,7 @@ function extractTypeScript(input: StaticAdapterInput): StaticAdapterResult {
   const sourceFile = ts.createSourceFile(input.relative, input.source, ts.ScriptTarget.Latest, true, scriptKind(input.relative));
   const constants = stringConstants(sourceFile);
   const routerPrefixes = mountedRouterPrefixes(sourceFile, constants);
+  const requestWrappers = requestWrapperDefinitions(sourceFile);
   const endpoints: DiscoveryFact[] = [];
   const seen = new Set<string>();
   const add = (method: string, endpoint: string, node: ts.Node, adapter: string, featureId = input.featureIds[0] || featureFromPath(endpoint), attributes: Record<string, unknown> = {}): void => {
@@ -72,16 +73,20 @@ function extractTypeScript(input: StaticAdapterInput): StaticAdapterResult {
 
   const visit = (node: ts.Node): void => {
     if (ts.isCallExpression(node)) {
-      if (ts.isIdentifier(node.expression) && node.expression.text === "fetch") {
+      if (ts.isIdentifier(node.expression) && requestWrappers.has(node.expression.text)) {
+        const wrapper = requestWrappers.get(node.expression.text)!;
+        const endpoint = expressionString(node.arguments[wrapper.path_parameter_index], constants);
+        if (endpoint && !hasUnresolvedEndpointParameter(endpoint)) add(wrapper.method, endpoint, node, "request-wrapper-call");
+      } else if (ts.isIdentifier(node.expression) && node.expression.text === "fetch") {
         const endpoint = expressionString(node.arguments[0], constants);
-        if (endpoint) add(methodFromOptions(node.arguments[1], constants), endpoint, node, "fetch");
+        if (endpoint && !hasUnresolvedEndpointParameter(endpoint)) add(methodFromOptions(node.arguments[1], constants), endpoint, node, "fetch");
       } else if (ts.isPropertyAccessExpression(node.expression)) {
         const receiver = node.expression.expression.getText(sourceFile);
         const member = node.expression.name.text;
         const method = member.toUpperCase();
         if (HTTP_METHODS.has(method) && isHttpReceiver(receiver)) {
           const endpoint = expressionString(node.arguments[0], constants);
-          if (endpoint) add(method, routerPrefixes.has(receiver) ? joinPaths(routerPrefixes.get(receiver) || "", endpoint) : endpoint, node, clientAdapter(receiver));
+          if (endpoint && !hasUnresolvedEndpointParameter(endpoint)) add(method, routerPrefixes.has(receiver) ? joinPaths(routerPrefixes.get(receiver) || "", endpoint) : endpoint, node, clientAdapter(receiver));
         } else if ((member === "query" || member === "mutate" || member === "mutation") && /graphql|apollo|gql/i.test(receiver)) {
           add("POST", "/graphql", node, "graphql-client", input.featureIds[0] || "graphql", { protocol: "GRAPHQL", operation: member === "query" ? "graphql_query" : "graphql_mutation" });
         } else if ((member === "query" || member === "mutate" || member === "mutation") && /(?:^|\.)trpc(?:\.|$)/i.test(receiver)) {
@@ -311,17 +316,44 @@ function expressionString(node: ts.Expression | undefined, constants = new Map<s
   if (ts.isStringLiteralLike(node)) return node.text;
   if (ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
   if (ts.isIdentifier(node)) return constants.get(node.text) || "";
-  if (ts.isTemplateExpression(node)) return node.head.text + node.templateSpans.map((span) => (ts.isIdentifier(span.expression) && /^[A-Z][A-Z0-9_]*$/.test(span.expression.text) && constants.has(span.expression.text) ? constants.get(span.expression.text) : ":" + expressionName(span.expression)) + span.literal.text).join("");
+  if (ts.isTemplateExpression(node)) return node.head.text + node.templateSpans.map((span) => {
+    if (ts.isIdentifier(span.expression) && /^[A-Z][A-Z0-9_]*$/.test(span.expression.text) && constants.has(span.expression.text)) return constants.get(span.expression.text) + span.literal.text;
+    const name = expressionName(span.expression);
+    return (/^(?:path|url|endpoint)$/i.test(name) ? `\${${name}}` : ":" + name) + span.literal.text;
+  }).join("");
   if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
     const left = expressionString(node.left, constants);
     const right = expressionString(node.right, constants);
     if (!right && /\?q=|\?query=|\?search=/i.test(node.right.getText())) return left + "?q=:query";
-    return left + (right || ":value");
+    const rightName = ts.isIdentifier(node.right) ? node.right.text : "";
+    return left + (right || (/^(?:path|url|endpoint)$/i.test(rightName) ? `\${${rightName}}` : ":value"));
   }
   return "";
 }
 
 function expressionName(node: ts.Expression): string { return ts.isIdentifier(node) ? node.text : ts.isPropertyAccessExpression(node) ? node.name.text : "value"; }
+function hasUnresolvedEndpointParameter(value: string): boolean { return /\$\{(?:path|url|endpoint)\}/i.test(value); }
+function requestWrapperDefinitions(sourceFile: ts.SourceFile): Map<string, { method: string; path_parameter_index: number }> {
+  const wrappers = new Map<string, { method: string; path_parameter_index: number }>();
+  for (const statement of sourceFile.statements) {
+    if (!ts.isFunctionDeclaration(statement) || !statement.name || !statement.body) continue;
+    const parameterIndex = new Map(statement.parameters.map((parameter, index) => [ts.isIdentifier(parameter.name) ? parameter.name.text : "", index]));
+    let match: { method: string; path_parameter_index: number } | undefined;
+    const visit = (node: ts.Node): void => {
+      if (match || !ts.isCallExpression(node) || !ts.isPropertyAccessExpression(node.expression)) { ts.forEachChild(node, visit); return; }
+      const method = node.expression.name.text.toUpperCase();
+      if (!HTTP_METHODS.has(method)) { ts.forEachChild(node, visit); return; }
+      const argumentText = node.arguments[0]?.getText(sourceFile) || "";
+      for (const [parameter, index] of parameterIndex) {
+        if (parameter && new RegExp(`\\b${parameter.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}\\b`).test(argumentText)) { match = { method, path_parameter_index: index }; break; }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(statement.body);
+    if (match) wrappers.set(statement.name.text, match);
+  }
+  return wrappers;
+}
 function methodFromOptions(node: ts.Expression | undefined, constants = new Map<string, string>()): string { return isObjectLiteral(node) ? (propertyString(node, "method", constants) || "GET").toUpperCase() : "GET"; }
 function propertyString(object: ts.ObjectLiteralExpression, name: string, constants = new Map<string, string>()): string { const property = object.properties.find((item) => ts.isPropertyAssignment(item) && propertyName(item.name) === name); return property && ts.isPropertyAssignment(property) ? expressionString(property.initializer, constants) : ""; }
 function propertyName(node: ts.PropertyName): string { return ts.isIdentifier(node) || ts.isStringLiteralLike(node) ? node.text : ""; }

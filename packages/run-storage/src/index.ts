@@ -353,6 +353,13 @@ export class RunStorage {
     return { handle: "art_" + runId.slice(4, 12) + "_" + name.replace(/[^A-Za-z0-9_.-]/g, "_"), kind, size_bytes: size };
   }
 
+  artifactRef(runId: string, name: string, kind: string): ArtifactRef {
+    this.assertSafeSegment(runId, "run_id");
+    this.assertSafeFileName(name, "artifact file name");
+    if (typeof kind !== "string" || !SAFE_KIND.test(kind)) throw Object.assign(new Error("artifact kind is invalid"), { code: "ARTIFACT_KIND_INVALID" });
+    return { handle: "art_" + runId.slice(4, 12) + "_" + name.replace(/[^A-Za-z0-9_.-]/g, "_"), kind };
+  }
+
   artifactPath(runId: string, name: string): string { return this.safePath(runId, path.join("artifacts", name)); }
   readArtifact(runId: string, name: string): Buffer { return fs.readFileSync(this.safePath(runId, path.join("artifacts", name))); }
 

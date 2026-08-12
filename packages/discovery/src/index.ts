@@ -26,7 +26,7 @@ export interface RouteMapping { file_glob: string; routes: string[]; features: s
 export interface DiscoveryInput { root: string; project_subpath?: string; route_map?: { ignore_globs?: string[]; mappings?: RouteMapping[] }; target_url?: string; budget?: DiscoveryBudget; live_exploration_policy?: LiveExplorationPolicy; }
 export interface DiscoveryCandidate { id: string; kind: string; route: string; feature_id: string; locator?: string; fact_id?: string; source_untrusted: true; }
 export interface ScenarioObservation { feature_id: string; scenario: string; observed: boolean; blocker: boolean; priority: "P0" | "P1" | "P2"; reason?: string; }
-export interface DiscoveryFact { fact_id: string; fact_type: "control" | "endpoint" | "field" | "validation" | "route" | "correlation" | "schema" | "runtime_response" | "workflow" | "interaction" | "ui_mutation"; source_ref?: { path: string; line?: number }; route?: string; confidence: number; [key: string]: unknown; }
+export interface DiscoveryFact { fact_id: string; fact_type: "control" | "endpoint" | "field" | "validation" | "route" | "correlation" | "schema" | "runtime_response" | "workflow" | "interaction" | "ui_mutation" | "ui_structure" | "ui_state_mapping"; source_ref?: { path: string; line?: number }; route?: string; confidence: number; [key: string]: unknown; }
 export interface DiscoveryResult {
   schema_version: "2.1";
   observations: Record<string, unknown>[];
@@ -37,8 +37,8 @@ export interface DiscoveryResult {
   metrics: { discovery_wall_ms: number; static_discovery_wall_ms: number; live_discovery_wall_ms: number; correlation_cpu_ms: number; total_discovery_wall_ms: number };
 }
 
-const DEFAULT_BUDGET = { max_depth: 5, max_files: 200, max_directories: 5000, timeout_ms: 3000, static_timeout_ms: 3000, live_timeout_ms: 3000, route_timeout_ms: 1000, max_routes: 100, max_controls_per_route: 24, max_network_observations: 100, max_interactions_per_route: 8 };
-const IGNORED = new Set([".git", "node_modules", "dist", "build", ".autopw"]);
+const DEFAULT_BUDGET = { max_depth: 5, max_files: 200, max_directories: 5000, timeout_ms: 10_000, static_timeout_ms: 4_000, live_timeout_ms: 10_000, route_timeout_ms: 5_000, max_routes: 100, max_controls_per_route: 24, max_network_observations: 100, max_interactions_per_route: 8 };
+const IGNORED = new Set([".git", "node_modules", "dist", "build", ".autopw", "test", "tests", "__tests__", "playwright-report", "test-results", "coverage"]);
 
 interface WalkState { files: string[]; directories: number; }
 interface LiveResource { close(): Promise<void>; }
@@ -94,7 +94,7 @@ export async function discover(input: DiscoveryInput): Promise<DiscoveryResult> 
     const structured = extractStaticEvidence({ relative, source, route, featureIds });
     const endpoints = structured.endpoints.length ? structured.endpoints : extractEndpoints(relative, source, route, featureIds);
     const fallbackValidations = structured.adapter === "openapi" || structured.adapter === "json-schema" ? [] : extractValidationFacts(relative, source, route, featureIds);
-    for (const fact of [...controls, ...structured.facts, ...fallbackValidations]) facts.set(fact.fact_id, fact);
+    for (const fact of [...controls, ...structured.facts, ...fallbackValidations, ...extractStateMappingFacts(relative, source, route, featureIds)]) facts.set(fact.fact_id, fact);
     for (const fact of endpoints) {
       const routeKey = String(fact.method || "") + "|" + String(fact.path_template || fact.route || "");
       if (!discoveredRoutes.has(routeKey) && discoveredRoutes.size >= budget.max_routes) {
@@ -257,6 +257,17 @@ function resolveTemplateEndpoint(value: string, constants: Map<string, string>):
 }
 function endpointFact(relative: string, route: string, featureIds: string[], method: string, endpoint: string): DiscoveryFact { const normalized = normalizeEndpoint(endpoint); return makeFact("endpoint", [relative, method, normalized, "regex"].join("|"), { method, path_template: normalized, route, operation: endpointOperation(method, normalized), feature_id: featureIds[0] || "unknown_feature", adapter: "regex-fallback", source_kind: "REGEX", confidence: 0.45, source_ref: { path: relative } }); }
 function extractValidationFacts(relative: string, source: string, route: string, featureIds: string[]): DiscoveryFact[] { const common = { route, feature_id: featureIds[0] || "unknown_feature", source_kind: "REGEX", confidence: 0.45, source_ref: { path: relative } }; const result: DiscoveryFact[] = []; for (const match of source.matchAll(/maxlength=["'](\d+)["']/gi)) result.push(makeFact("validation", [relative, "maxLength", match[1]].join("|"), { ...common, field: "title", rule: "maxLength", value: Number(match[1]) })); if (/\brequired\b|aria-required=["']true["']/i.test(source)) result.push(makeFact("validation", relative + "|required|title", { ...common, field: "title", rule: "required" })); const optionValues = [...source.matchAll(/<option\b[^>]*\bvalue=["']([^"']+)["'][^>]*>/gi)].map((match) => match[1]).filter((value) => value.trim()); const priorities = [...source.matchAll(/(?:priority|PRIORITIES)[^\n]{0,180}(?:low|normal|high)/gi)].length; if (priorities || optionValues.length || /<option[^>]+value=["'](?:low|normal|high)["']/i.test(source)) result.push(makeFact("validation", relative + "|enum|priority", { ...common, field: "priority", rule: "enum", values: optionValues.length ? [...new Set(optionValues)] : ["low", "normal", "high"] })); return result; }
+function extractStateMappingFacts(relative: string, source: string, route: string, featureIds: string[]): DiscoveryFact[] {
+  const result: DiscoveryFact[] = [];
+  for (const match of source.matchAll(/function\s+([A-Za-z_$][\w$]*)\s*\(\s*([A-Za-z_$][\w$]*)\s*\)\s*\{([\s\S]{0,800}?)\n\}/g)) {
+    const [, functionName, parameter, body] = match;
+    if (!/status|state/i.test(functionName + " " + parameter)) continue;
+    const pattern = new RegExp(`\\b${escapeRegExp(parameter)}\\s*={2,3}\\s*[\"']([^\"']+)[\"']`, "g");
+    const handled = [...body.matchAll(pattern)].map((item) => item[1]);
+    if (handled.length) result.push(makeFact("ui_state_mapping", [relative, functionName, parameter, ...handled].join("|"), { route, feature_id: featureIds[0] || "live.ui", field: parameter, handled_values: [...new Set(handled)], source_kind: "AST", confidence: 0.9, source_ref: { path: relative, line: source.slice(0, match.index || 0).split(/\r?\n/).length } }));
+  }
+  return result;
+}
 function correlateFacts(facts: DiscoveryFact[]): DiscoveryFact[] { const controls = facts.filter((fact) => fact.fact_type === "control"); const endpoints = facts.filter((fact) => fact.fact_type === "endpoint"); const result: DiscoveryFact[] = []; for (const control of controls) { const name = String(control.accessible_name || "").toLowerCase(); if (name === "search") for (const endpoint of endpoints.filter((item) => String(item.path_template).includes("q="))) result.push(makeFact("correlation", [String(control.fact_id), String(endpoint.fact_id)].join("|"), { relation: "control_api", control_fact_id: control.fact_id, endpoint_fact_id: endpoint.fact_id, feature_id: "todo.search", route: control.route, source_ref: { path: "<correlation>" } })); } return result; }
 function makeFact(fact_type: DiscoveryFact["fact_type"], key: string, fields: Record<string, unknown>): DiscoveryFact { return { fact_id: "fact_" + crypto.createHash("sha256").update(fact_type + "|" + key).digest("hex").slice(0, 16), fact_type, confidence: typeof fields.confidence === "number" ? fields.confidence : 0.9, ...fields }; }
 function endpointOperation(method: string, endpoint: string): string { if (endpoint.includes("summary")) return "summary"; if (endpoint.includes("count")) return "count"; if (endpoint.includes("?q=") || endpoint.includes("${q}")) return "search"; return ({ GET: "read", POST: "create", PATCH: "update", PUT: "update", DELETE: "delete", OPTIONS: "cors" } as Record<string, string>)[method] || method.toLowerCase(); }
@@ -277,7 +288,7 @@ function walk(dir: string, depth: number, maxDepth: number, maxFiles: number, ma
     if (state.files.length >= maxFiles || IGNORED.has(entry.name) || ignoredGlobs.some((glob) => mappingMatches(glob, entry.name))) continue;
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) walk(full, depth + 1, maxDepth, maxFiles, maxDirectories, ignoredGlobs, deadline, state);
-    else if (/\.(?:ts|tsx|js|jsx|mjs|cjs|html|vue|svelte|yaml|yml|json)$/.test(entry.name)) state.files.push(full);
+    else if (!/(?:^|[._-])(?:test|spec)\.[cm]?[jt]sx?$/i.test(entry.name) && !/^playwright\.config\./i.test(entry.name) && !/(?:package-lock|npm-shrinkwrap)\.json$/i.test(entry.name) && /\.(?:ts|tsx|js|jsx|mjs|cjs|html|vue|svelte|yaml|yml|json)$/.test(entry.name)) state.files.push(full);
   }
 }
 function readBounded(file: string, deadline: number): string {
