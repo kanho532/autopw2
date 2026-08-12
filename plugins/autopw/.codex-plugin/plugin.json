@@ -1,6 +1,6 @@
 {
   "name": "autopw",
-  "version": "2.2.0+codex.20260811095141",
+  "version": "2.2.0+codex.20260812015754",
   "description": "Trusted local web application testing for Codex.",
   "author": {
     "name": "AutoPW",
@@ -18,7 +18,7 @@
   "interface": {
     "displayName": "AutoPW",
     "shortDescription": "Trusted web testing for Codex.",
-    "longDescription": "Discover application behavior, derive test requirements, execute declarative Playwright tests, and produce auditable quality reports for explicitly trusted local workspaces.",
+    "longDescription": "Discover application behavior, derive test requirements, execute declarative or native @playwright/test checks, and produce auditable quality reports and formal Chinese CR packages for explicitly trusted local workspaces.",
     "developerName": "AutoPW",
     "category": "Productivity",
     "capabilities": [
@@ -28,7 +28,8 @@
     "defaultPrompt": [
       "Use AutoPW to audit this trusted web application.",
       "Use AutoPW to derive test coverage for this project.",
-      "Explain why the latest AutoPW audit failed."
+      "Explain why the latest AutoPW audit failed.",
+      "Generate a formal Chinese CR report from native Playwright evidence."
     ]
   },
   "mcpServers": "./.mcp.json"
