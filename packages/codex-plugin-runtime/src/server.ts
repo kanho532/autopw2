@@ -17,7 +17,7 @@ export function createPluginServer(host = new AutoPwPluginHost()): McpServer {
   server.registerTool("get_operation_result", { title: "Get coverage operation result", description: "Read a completed coverage derivation result.", inputSchema: operation, annotations: readOnly() }, async (input) => call(host, "get_operation_result", input));
   server.registerTool("get_run_status", { title: "Get audit run status", description: "Poll an AutoPW audit run.", inputSchema: run, annotations: readOnly() }, async (input) => call(host, "get_run_status", input));
   server.registerTool("get_run_result", { title: "Get audit run result", description: "Read a completed AutoPW audit result and report handles.", inputSchema: run, annotations: readOnly() }, async (input) => call(host, "get_run_result", input));
-  server.registerTool("export_run_report", { title: "Export audit report", description: "Copy a completed run's Markdown, HTML, and JSON reports into the trusted workspace under .autopw/reports.", inputSchema: run, annotations: mutating() }, async (input) => {
+  server.registerTool("export_run_report", { title: "Export detailed audit report", description: "Generate a detailed Chinese audit report from the completed AutoPW run, including every operation, concise cause analysis, code locations, and colocated Playwright evidence under .autopw/reports/<run_id>.", inputSchema: run, annotations: mutating() }, async (input) => {
     try { return success(host.exportRunReport(input)); }
     catch (error) { const value = error as Error & { code?: string }; return { isError: true, content: [{ type: "text" as const, text: JSON.stringify({ kind: "error", error: { code: value.code || "PLUGIN_ERROR", message: value.message } }) }] }; }
   });

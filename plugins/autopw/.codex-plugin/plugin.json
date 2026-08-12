@@ -1,6 +1,6 @@
 {
   "name": "autopw",
-  "version": "2.2.0+codex.20260811095141",
+  "version": "2.2.0+codex.20260812023241",
   "description": "Trusted local web application testing for Codex.",
   "author": {
     "name": "AutoPW",
@@ -18,7 +18,7 @@
   "interface": {
     "displayName": "AutoPW",
     "shortDescription": "Trusted web testing for Codex.",
-    "longDescription": "Discover application behavior, derive test requirements, execute declarative Playwright tests, and produce auditable quality reports for explicitly trusted local workspaces.",
+    "longDescription": "Discover application behavior, derive test requirements, execute declarative Playwright tests, and produce detailed Chinese reports with colocated Playwright evidence for explicitly trusted local workspaces.",
     "developerName": "AutoPW",
     "category": "Productivity",
     "capabilities": [
