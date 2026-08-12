@@ -1,6 +1,6 @@
 {
   "name": "autopw",
-  "version": "2.2.0+codex.20260812021437",
+  "version": "2.2.0+codex.20260811095141",
   "description": "Trusted local web application testing for Codex.",
   "author": {
     "name": "AutoPW",
@@ -18,7 +18,7 @@
   "interface": {
     "displayName": "AutoPW",
     "shortDescription": "Trusted web testing for Codex.",
-    "longDescription": "Run trusted web audits through one tier-aware workflow: smoke stays AutoPW-only, fast adds evidence-focused CR review, and full hands evidence to the canonical CR lifecycle.",
+    "longDescription": "Discover application behavior, derive test requirements, execute declarative Playwright tests, and produce auditable quality reports for explicitly trusted local workspaces.",
     "developerName": "AutoPW",
     "category": "Productivity",
     "capabilities": [
@@ -26,7 +26,7 @@
       "Write"
     ],
     "defaultPrompt": [
-      "Use AutoPW to audit this trusted web application with smoke, fast, or full tier routing.",
+      "Use AutoPW to audit this trusted web application.",
       "Use AutoPW to derive test coverage for this project.",
       "Explain why the latest AutoPW audit failed."
     ]
