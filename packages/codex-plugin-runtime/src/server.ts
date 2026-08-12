@@ -7,7 +7,6 @@ const workspace = { workspace_path: z.string().describe("Absolute path to a work
 const run = { ...workspace, run_id: z.string() };
 const resumableRun = { ...run, client_request_id: z.string().optional().describe("Optional idempotency key preserved when retrying the same resume request.") };
 const operation = { ...workspace, operation_id: z.string() };
-const crReport = { ...workspace, project: z.string().optional(), report_date: z.string().optional(), playwright_root: z.string().optional().describe("Optional workspace-contained directory containing Playwright results.json and html-report."), run_id: z.string().optional() };
 
 export function createPluginServer(host = new AutoPwPluginHost()): McpServer {
   const server = new McpServer({ name: "autopw", version: "2.2.0" }, { instructions: "AutoPW audits only user-trusted workspaces. Call autopw_status before derive_coverage or run_audit. Never invent workspace paths, target URLs, allowed origins, or auth scopes. If a workspace is not trusted, instruct the user to run the explicit autopw trust CLI command." });
@@ -20,10 +19,6 @@ export function createPluginServer(host = new AutoPwPluginHost()): McpServer {
   server.registerTool("get_run_result", { title: "Get audit run result", description: "Read a completed AutoPW audit result and report handles.", inputSchema: run, annotations: readOnly() }, async (input) => call(host, "get_run_result", input));
   server.registerTool("export_run_report", { title: "Export audit report", description: "Copy a completed run's Markdown, HTML, and JSON reports into the trusted workspace under .autopw/reports.", inputSchema: run, annotations: mutating() }, async (input) => {
     try { return success(host.exportRunReport(input)); }
-    catch (error) { const value = error as Error & { code?: string }; return { isError: true, content: [{ type: "text" as const, text: JSON.stringify({ kind: "error", error: { code: value.code || "PLUGIN_ERROR", message: value.message } }) }] }; }
-  });
-  server.registerTool("generate_cr_report", { title: "Generate Chinese CR report", description: "Generate a formal Chinese CR report and structured coverage artifacts from native Playwright HTML/JSON/trace evidence in the trusted workspace.", inputSchema: crReport, annotations: mutating() }, async (input) => {
-    try { return success(host.generateCrReport(input)); }
     catch (error) { const value = error as Error & { code?: string }; return { isError: true, content: [{ type: "text" as const, text: JSON.stringify({ kind: "error", error: { code: value.code || "PLUGIN_ERROR", message: value.message } }) }] }; }
   });
   server.registerTool("explain_run", { title: "Explain audit run", description: "Explain cases, failures, and evidence for a completed audit run.", inputSchema: { ...run, focus_case_id: z.string().optional() }, annotations: readOnly() }, async (input) => call(host, "explain_run", input));

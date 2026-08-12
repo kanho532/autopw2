@@ -64,7 +64,7 @@ try {
   const { client } = await connect(configRoot, "autopw-plugin-verifier");
   try {
     const tools = await client.listTools();
-    check("plugin-stdio-tools-list", ["autopw_status", "derive_coverage", "run_audit", "get_run_status", "get_run_result", "export_run_report", "generate_cr_report", "explain_run", "resume_run"].every((name) => tools.tools.some((tool) => tool.name === name)));
+    check("plugin-stdio-tools-list", ["autopw_status", "derive_coverage", "run_audit", "get_run_status", "get_run_result", "export_run_report", "explain_run", "resume_run"].every((name) => tools.tools.some((tool) => tool.name === name)));
     const status = output(await client.callTool({ name: "autopw_status", arguments: { workspace_path: workspace } }));
     check("plugin-stdio-status-resolves-trust", status.trusted === true && status.target_configured === true);
     const accepted = output(await client.callTool({ name: "run_audit", arguments: { workspace_path: workspace, base_tier: "smoke" } }));
