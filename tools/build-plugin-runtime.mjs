@@ -20,7 +20,10 @@ await esbuild.build({
   platform: "node",
   format: "esm",
   target: "node20",
-  external: ["playwright", "@modelcontextprotocol/sdk", "zod"],
+  // Discovery loads these packages at runtime. Keep them external so the
+  // published plugin uses normal Node resolution instead of bundling
+  // TypeScript's CommonJS dynamic-require shim into an ESM bundle.
+  external: ["playwright", "@modelcontextprotocol/sdk", "zod", "typescript", "js-yaml"],
   sourcemap: false,
   legalComments: "none"
 });

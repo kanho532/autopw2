@@ -1,13 +1,19 @@
 {
   "name": "autopw",
-  "version": "2.2.0",
+  "version": "2.2.0+codex.20260811095141",
   "description": "Trusted local web application testing for Codex.",
   "author": {
     "name": "AutoPW",
     "url": "https://github.com/kanho532/autopw2"
   },
   "repository": "https://github.com/kanho532/autopw2",
-  "keywords": ["testing", "playwright", "web", "qa", "automation"],
+  "keywords": [
+    "testing",
+    "playwright",
+    "web",
+    "qa",
+    "automation"
+  ],
   "skills": "./skills/",
   "interface": {
     "displayName": "AutoPW",
@@ -15,7 +21,10 @@
     "longDescription": "Discover application behavior, derive test requirements, execute declarative Playwright tests, and produce auditable quality reports for explicitly trusted local workspaces.",
     "developerName": "AutoPW",
     "category": "Productivity",
-    "capabilities": ["Read", "Write"],
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
     "defaultPrompt": [
       "Use AutoPW to audit this trusted web application.",
       "Use AutoPW to derive test coverage for this project.",

@@ -9,7 +9,7 @@ const marketplace = JSON.parse(fs.readFileSync(path.join(root, ".agents", "plugi
 let passed = 0; let failed = 0;
 function check(name, value) { console.log((value ? "PASS " : "FAIL ") + name); if (value) passed += 1; else failed += 1; }
 
-check("plugin-required-manifest", plugin.name === "autopw" && plugin.version === "2.2.0" && plugin.skills === "./skills/" && plugin.mcpServers === "./.mcp.json");
+check("plugin-required-manifest", plugin.name === "autopw" && /^2\.2\.0(?:\+codex\.[A-Za-z0-9._-]+)?$/.test(plugin.version) && plugin.skills === "./skills/" && plugin.mcpServers === "./.mcp.json");
 check("plugin-skills-are-present", ["web-audit", "audit-triage"].every((name) => fs.existsSync(path.join(pluginRoot, "skills", name, "SKILL.md"))));
 check("plugin-mcp-is-version-pinned", mcp.mcpServers?.autopw?.command === "npx" && mcp.mcpServers.autopw.args?.includes("@autopw/codex-plugin-runtime@2.2.0") && !mcp.mcpServers.autopw.args?.some((value) => String(value).includes("latest")));
 check("plugin-marketplace-entry", marketplace.plugins?.some((item) => item.name === "autopw" && item.source?.path === "./plugins/autopw" && item.policy?.installation === "AVAILABLE" && item.policy?.authentication === "ON_INSTALL"));
